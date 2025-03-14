@@ -10,14 +10,14 @@ import {
     Position,
     Tooltip
 } from "@deck.gl-community/editable-layers";
-import { distance } from '@turf/turf';
-import { lineIntersect } from "@turf/turf";
+import { distance, lineIntersect } from '@turf/turf';
 
 export class DrawStreetMode extends GeoJsonEditMode {
-    // declaration of variables for the calculation of the distance of linestring
     dist = 0;
     position: Position = null!;
+    
     elems: Position[] = [];
+    
     handleClick(event: ClickEvent, props: ModeProps<FeatureCollection>) {
         const { picks } = event;
         const clickedEditHandle = getPickedEditHandle(picks);
@@ -53,15 +53,20 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
             // Process street intersections
             const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
+            const featuresToAdd: FeatureCollection = {
+                type: 'FeatureCollection',
+                features: streetSegments.map(segment => ({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: segment
+                }))
+            }
             
-            // Add each street segment
             let currentData = props.data;
-            for (const segment of streetSegments) {
-                const editAction = this.getAddFeatureAction(segment, currentData);
-                if (editAction) {
-                    props.onEdit(editAction);
-                    currentData = editAction.updatedData;
-                }
+            const editAction = this.getAddManyFeaturesAction(featuresToAdd, currentData);
+            if (editAction) {
+                props.onEdit(editAction);
+                currentData = editAction.updatedData;
             }
         }
         else if (positionAdded) {
@@ -91,22 +96,26 @@ export class DrawStreetMode extends GeoJsonEditMode {
                 
                 // Process street intersections
                 const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
+                const featuresToAdd: FeatureCollection = {
+                    type: 'FeatureCollection',
+                    features: streetSegments.map(segment => ({
+                        type: 'Feature',
+                        properties: {},
+                        geometry: segment
+                    }))
+                }
                 
-                // Add each street segment
                 let currentData = props.data;
-                for (const segment of streetSegments) {
-                    const editAction = this.getAddFeatureAction(segment, currentData);
-                    if (editAction) {
-                        props.onEdit(editAction);
-                        currentData = editAction.updatedData;
-                    }
+                const editAction = this.getAddManyFeaturesAction(featuresToAdd, currentData);
+                if (editAction) {
+                    props.onEdit(editAction);
+                    currentData = editAction.updatedData;
                 }
             }
         }
         else if (key === 'Escape') {
             this.resetClickSequence();
             props.onEdit({
-                // Because the new drawing feature is dropped, so the data will keep as the same.
                 updatedData: props.data,
                 editType: 'cancelFeature',
                 editContext: {}
@@ -172,14 +181,10 @@ export class DrawStreetMode extends GeoJsonEditMode {
         });
     }
 
-    // utility function
     calculateInfoDraw(clickSequence: string | any[]) {
-        // check if the selected points are at least 2
         if (clickSequence.length > 1) {
-            // setting the last point
             this.position = clickSequence[clickSequence.length - 1];
-            // calculate the new distance by adding the
-            // distance of the new drawn linestring
+
             this.dist = distance(
                 clickSequence[clickSequence.length - 2],
                 clickSequence[clickSequence.length - 1]
@@ -196,7 +201,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
                 text = formatTooltip(args.dist);
             }
             else {
-                // By default, round to 2 decimal places and append units
+                // Distance between the last two tentative points
                 text = `${(args.dist * 1000).toFixed(2)} m`;
             }
 
@@ -224,7 +229,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
             }
 
             intersectionPoints.push(...lineIntersect(newStreet, feature.geometry as LineString).features.map((intersection: any) => {
-                                return {
+                return {
                     point: intersection.geometry.coordinates,
                     distance: distance(segmentStart, intersection.geometry.coordinates)
                 };

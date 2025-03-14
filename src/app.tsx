@@ -8,10 +8,12 @@ import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './draw-street-mode';
 import { polygonize } from '@turf/turf';
 import { GeoJsonLayer } from 'deck.gl';
+// import { FeatureCollection as OGFeatureCollection, LineString } from 'geojson';
+// import tallinn from './tallinn.json';
 
 const INITIAL_VIEW_STATE = {
-    latitude: 0, // 59.4370,
-    longitude: 0, //24.7536,
+    latitude: 59.4370,
+    longitude: 24.7536,
     zoom: 14,
     bearing: 0,
     pitch: 30
@@ -46,8 +48,7 @@ function Root() {
             data: streetsData,
             mode: new DrawStreetMode(),
             filled: true,
-            pointRadiusMinPixels: 5,
-            pointRadiusScale: 2000,
+            getLineWidth: 5,
             getFillColor: [200, 0, 80, 180],
             getLineColor: (_feature: any, _isSelected: any, _mode: any): Color => {
                 return [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255];
@@ -58,6 +59,9 @@ function Root() {
             onEdit: ({ updatedData, editType }) => {
                 if (editType !== 'addTentativePosition') {
                     setStreetsData(updatedData);
+                    setBlocksData(polygonize(updatedData as any) as FeatureCollection);
+
+                    console.log(editType, updatedData as any, polygonize(updatedData as any));
                 }
             }
         })
