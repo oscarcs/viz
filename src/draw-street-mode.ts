@@ -10,6 +10,7 @@ import {
     Position,
     Tooltip
 } from "@deck.gl-community/editable-layers";
+// @ts-ignore: Missing type definitions
 import distance from '@turf/distance';
 
 export class DrawStreetMode extends GeoJsonEditMode {
@@ -121,7 +122,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
 
         if (tentativeFeature) {
-            guides.features.push(tentativeFeature);
+            guides.features.push(tentativeFeature as any);
         }
 
         const editHandles: any[] = clickSequence.map((clickedCoord, index) => ({
@@ -142,7 +143,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
         return guides;
     }
 
-    handlePointerMove(event: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
+    handlePointerMove(_: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
         props.onUpdateCursor('cell');
     }
 
@@ -154,7 +155,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
     }
 
     // utility function
-    calculateInfoDraw(clickSequence) {
+    calculateInfoDraw(clickSequence: string | any[]) {
         // check if the selected points are at least 2
         if (clickSequence.length > 1) {
             // setting the last point
@@ -215,8 +216,8 @@ function isEqual(a: any, b: any) {
 }
 
 function memoize(compute: Function) {
-    let cachedArgs = {};
-    let cachedResult;
+    let cachedArgs: Record<string, any> = {};
+    let cachedResult: any;
 
     return (args: any) => {
         for (const key in args) {

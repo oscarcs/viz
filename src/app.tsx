@@ -3,11 +3,13 @@ import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
 import { CompassWidget } from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
-import { Color, EditableGeoJsonLayer, Polygon } from '@deck.gl-community/editable-layers';
+import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './draw-street-mode';
 import { polygonize } from '@turf/turf';
 import { GeoJsonLayer } from 'deck.gl';
+import tallinn from './tallinn.json';
+import { FeatureCollection as OGFeatureCollection, LineString } from 'geojson';
 
 const INITIAL_VIEW_STATE = {
     latitude: 59.4370,  // Tallinn's latitude
@@ -22,21 +24,14 @@ function Root() {
     const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     
     React.useEffect(() => {
-        // Fetch the GeoJSON data from tallinn.geojson
-        fetch('./tallinn.geojson')
-            .then(response => {
-                if (!response.ok) {
-                    throw new Error('Network response was not ok');
-                }
-                return response.json();
-            })
-            .then(data => {
-                setStreetsData(data);
-                setBlocksData(polygonize(data) as FeatureCollection);
-            })
-            .catch(error => {
-                console.error('Error fetching GeoJSON data:', error);
-            });
+        try {
+            const data = tallinn as FeatureCollection;
+            setStreetsData(data);
+            setBlocksData(polygonize(data as OGFeatureCollection<LineString>) as FeatureCollection);
+        }
+        catch (error) {
+            console.error('Error processing GeoJSON data:', error);
+        }
     }, []);
 
     const layers = [
@@ -45,7 +40,7 @@ function Root() {
             data: blocksData as any,
             filled: true,
             stroked: false,
-            getFillColor: (feature: any) => [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255],
+            getFillColor: (_: any) => [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255],
             pickable: true
         }),
         new EditableGeoJsonLayer({
@@ -56,7 +51,7 @@ function Root() {
             pointRadiusMinPixels: 5,
             pointRadiusScale: 2000,
             getFillColor: [200, 0, 80, 180],
-            getLineColor: (feature: any, isSelected: any, mode: any): Color => {
+            getLineColor: (feature: any, _0: any, _1: any): Color => {
                 switch (feature.properties.highway) {
                     case 'residential':
                         return [0, 0, 0, 255];
