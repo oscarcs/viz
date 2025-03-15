@@ -12,6 +12,10 @@ import {
 } from "@deck.gl-community/editable-layers";
 import { distance, lineIntersect } from '@turf/turf';
 
+interface Intersection {
+    point: Position;
+    distance: number;
+}
 export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
     position: Position = null!;
@@ -207,7 +211,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
             tooltips = [
                 {
-                    position: this.position,
+                    position: [...this.position, 100],
                     text
                 }
             ];
@@ -222,7 +226,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
         const segmentStart = newStreet.coordinates[0];
         const intersectionPoints: { point: Position, distance: number }[] = [];
-        
+
         for (const feature of existingStreets.features) {
             if (feature.geometry.type !== 'LineString') {
                 continue;
@@ -236,21 +240,22 @@ export class DrawStreetMode extends GeoJsonEditMode {
             }));
         }
 
-        if (intersectionPoints.length === 0) {
-            return [newStreet];
+        const segments = this.splitLineStringAtIntersections(newStreet, intersectionPoints);
+
+        return segments;
+    }
+
+    private splitLineStringAtIntersections(lineString: LineString, intersections: Intersection[]): LineString[] {
+        if (intersections.length === 0) {
+            return [lineString];
         }
 
-        intersectionPoints.sort((a, b) => a.distance - b.distance);
+        // Sort intersections by distance from the start of the line
+        intersections.sort((a, b) => a.distance - b.distance);
 
-        // Loop through the intersection points and split the new street at each intersection
-        const coordinates = newStreet.coordinates;
+        const coordinates = lineString.coordinates;
         const segments: LineString[] = [];
         
-        // Helper to check if two points are approximately equal (for floating point comparison)
-        const isSamePoint = (a: Position, b: Position): boolean => {
-            return Math.abs(a[0] - b[0]) < 0.000001 && Math.abs(a[1] - b[1]) < 0.000001;
-        };
-
         // Start with the first point of the linestring
         let currentSegment: Position[] = [coordinates[0]];
         let lastIntersection: Position | null = null;
@@ -261,7 +266,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
             const end = coordinates[i + 1];
             
             // Find intersections on this segment
-            const segmentIntersections = intersectionPoints
+            const segmentIntersections = intersections
                 .filter(ip => {
                     // Check if the intersection falls on this line segment
                     const d1 = distance(start, ip.point);
@@ -272,11 +277,11 @@ export class DrawStreetMode extends GeoJsonEditMode {
                     return Math.abs(d1 + d2 - segmentLength) < 0.000001;
                 })
                 .sort((a, b) => distance(start, a.point) - distance(start, b.point));
-            
+   
             // Process each intersection on this segment
             for (const intersection of segmentIntersections) {
                 // Skip if this is the same as our last point
-                if (lastIntersection && isSamePoint(lastIntersection, intersection.point)) {
+                if (lastIntersection && this.isSamePoint(lastIntersection, intersection.point)) {
                     continue;
                 }
                 
@@ -294,7 +299,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
             }
             
             // Add the endpoint of this segment
-            if (!lastIntersection || !isSamePoint(lastIntersection, end)) {
+            if (!lastIntersection || !this.isSamePoint(lastIntersection, end)) {
                 currentSegment.push(end);
                 lastIntersection = null;
             }
@@ -310,6 +315,10 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
         return segments;
     }
+
+    private isSamePoint = (a: Position, b: Position): boolean => {
+        return Math.abs(a[0] - b[0]) < 0.000001 && Math.abs(a[1] - b[1]) < 0.000001;
+    };
     
     private isEqual(a: any, b: any) {
         if (a === b) {
