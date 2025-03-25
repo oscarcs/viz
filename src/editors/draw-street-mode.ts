@@ -4,6 +4,7 @@ import {
     GeoJsonEditMode,
     getPickedEditHandle,
     GuideFeatureCollection,
+    EditAction,
     LineString,
     ModeProps,
     PointerMoveEvent,
@@ -218,6 +219,14 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
         return tooltips;
     });
+
+    private getModifyExistingFeaturesAction(updatedData: FeatureCollection): EditAction<FeatureCollection> {
+        return {
+            updatedData,
+            editType: 'addFeature',
+            editContext: null
+        };
+    }
 
     private processStreetIntersections(newStreet: LineString, existingStreets: FeatureCollection): LineString[] {
         if (!existingStreets.features || existingStreets.features.length === 0) {

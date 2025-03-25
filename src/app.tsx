@@ -5,7 +5,7 @@ import { CompassWidget } from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
-import { DrawStreetMode } from './draw-street-mode';
+import { DrawStreetMode } from './editors/draw-street-mode';
 import { polygonize } from '@turf/turf';
 import { GeoJsonLayer } from 'deck.gl';
 // import { FeatureCollection as OGFeatureCollection, LineString } from 'geojson';
