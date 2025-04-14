@@ -125,10 +125,8 @@ class Graph {
             
             const intersections = this.findAllIntersections(start, end);
             
-            // Sort intersections by distance from start
             intersections.sort((a, b) => a.distance - b.distance);
             
-            // Add all points (start, intersections, end) in order
             const points = [start];
             intersections.forEach(intersection => {
                 points.push(intersection.point);
@@ -140,7 +138,6 @@ class Graph {
                 const fromNode = this.getNode(points[j]);
                 const toNode = this.getNode(points[j + 1]);
                 
-                // Add edge if it doesn't already exist
                 if (!this.edgeExists(fromNode, toNode)) {
                     this.addEdge(fromNode, toNode);
                 }
@@ -152,6 +149,8 @@ class Graph {
                 }
             }
         }
+
+        console.log(this.edges, this.nodes);
     }
 
     // Check if an edge already exists between two nodes
@@ -162,7 +161,7 @@ class Graph {
     // Find all intersections between a segment and existing edges
     private findAllIntersections(start: number[], end: number[]) {
         const intersections = [];
-        const EPSILON = 1e-9; // Small value for floating point comparison
+        const EPSILON = 1e-9;
         
         for (const edge of this.edges) {
             // Skip if we're checking the same edge
@@ -217,11 +216,9 @@ class Graph {
             return;
         }
         
-        // Remove the original edge and its symmetric
         this.removeEdge(edge);
         this.removeEdge(edge.symmetric!);
         
-        // Add new edges through the intersection
         this.addEdge(fromNode, intersectionNode);
         this.addEdge(intersectionNode, toNode);
     }
@@ -273,18 +270,41 @@ class Graph {
     }
 
     /**
-     * Polygonizes the graph.
+     * Returns the polgonization of this graph - the set of polygons enclosed by the edges.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
      */
     polygonize(): FeatureCollection<Polygon> {
-        this.deleteDangles();
+        const graphCopy = new Graph();
+        
+        // Copy all edges to the new graph
+        // We only need to process edges in one direction as addEdge creates both directions
+        const processedEdges = new Set<string>();
+        
+        this.edges.forEach(edge => {
+            const edgeKey = `${edge.from.id}-${edge.to.id}`;
+            const reverseEdgeKey = `${edge.to.id}-${edge.from.id}`;
+            
+            // Skip if we've already processed this edge or its symmetric
+            if (processedEdges.has(edgeKey) || processedEdges.has(reverseEdgeKey)) {
+                return;
+            }
+            
+            processedEdges.add(edgeKey);
+            processedEdges.add(reverseEdgeKey);
+            
+            const fromNode = graphCopy.getNode(edge.from.coordinates);
+            const toNode = graphCopy.getNode(edge.to.coordinates);
+            graphCopy.addEdge(fromNode, toNode);
+        });
 
-        this.deleteCutEdges();
+        // Proceed with the polygonization on the copy
+        graphCopy.deleteDangles();
+        graphCopy.deleteCutEdges();
 
         const holes: EdgeRing[] = [];
         const shells: EdgeRing[] = [];
 
-        this.getEdgeRings()
+        graphCopy.getEdgeRings()
             .filter((ring) => ring.isValid())
             .forEach((ring) => {
                 if (ring.isHole()) holes.push(ring);

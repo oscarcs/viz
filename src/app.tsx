@@ -14,7 +14,7 @@ const INITIAL_VIEW_STATE = {
     longitude: 0,
     zoom: 10,
     bearing: 0,
-    pitch: 30
+    pitch: 0
 };
 
 function Root() {
