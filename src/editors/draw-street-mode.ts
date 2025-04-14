@@ -34,7 +34,7 @@ export class DrawStreetMode extends MapDataEditMode {
         }
         const clickSequence = this.getClickSequence();
 
-        // check if the pointer is on editable state calculate the distance of new point
+        // If the pointer is in an editable state, recalculate the info draw
         if (!clickedEditHandle) {
             this.calculateInfoDraw(clickSequence);
         }
@@ -45,7 +45,7 @@ export class DrawStreetMode extends MapDataEditMode {
             Array.isArray(clickedEditHandle.properties.positionIndexes) &&
             clickedEditHandle.properties.positionIndexes[0] === clickSequence.length - 1
         ) {
-            this.handleNewLineString(props, clickSequence);
+            this.handleNewStreet(props, clickSequence);
         }
         else if (positionAdded) {
             // new tentative point
@@ -62,8 +62,9 @@ export class DrawStreetMode extends MapDataEditMode {
 
     handleKeyUp(event: KeyboardEvent, props: ModeProps<MapData>) {
         const { key } = event;
+        
         if (key === 'Enter') {
-            this.handleNewLineString(props, this.getClickSequence());
+            this.handleNewStreet(props, this.getClickSequence());
         }
         else if (key === 'Escape') {
             this.resetClickSequence();
@@ -75,18 +76,15 @@ export class DrawStreetMode extends MapDataEditMode {
         }
     }
 
-    handleNewLineString(props: ModeProps<MapData>, clickSequence: Position[]) {
-        // reset distance
+    handleNewStreet(props: ModeProps<MapData>, clickSequence: Position[]) {
+        // Reset tooltip distance
         this.dist = 0;
-        
-        const lineStringToAdd: LineString = {
-            type: 'LineString',
-            coordinates: [...clickSequence]
-        };
+
+        // TODO: Use the click sequence to add a new street to underlying map data Graph data structure 
 
         this.resetClickSequence();
 
-        // Process street intersections
+        // TODO: Process street intersections
         // const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
         // const featuresToAdd: FeatureCollection = {
         //     type: 'FeatureCollection',
@@ -96,22 +94,11 @@ export class DrawStreetMode extends MapDataEditMode {
         //         geometry: segment
         //     }))
         // }
-        
-        // let currentData = props.data;
 
-        // const streets = {
-        //     type: 'FeatureCollection',
-        //     features: [...props.data.blocks.features, lineStringToAdd]
-        // };
-        // const blocks = {
-        //     type: 'FeatureCollection',
-        //     features: []
-        // };
-
-        // const editAction = this.getUpdatedMapDataAction(streets, blocks);
+        // TODO: Generate a new MapDataAction to return back to the app.
+        // const editAction = this.getUpdatedMapDataAction();
         // if (editAction) {
         //     props.onEdit(editAction);
-        //     currentData = editAction.updatedData;
         // }
     }
 

@@ -17,6 +17,7 @@ import {
     Point,
     AnyGeoJson,
 } from '@deck.gl-community/editable-layers';
+import Graph from '../ds/Graph';
 export type MapDataEditAction = EditAction<MapData>;
 
 type TentativeFeature = FeatureWithProps<
@@ -59,6 +60,7 @@ export interface MapData {
 
 export class MapDataEditMode implements EditMode<MapData, GuideFeatureCollection> {
     _clickSequence: Position[] = [];
+    _streetNetwork: Graph | null = null;
 
     getGuides(props: ModeProps<MapData>): GuideFeatureCollection {
         return DEFAULT_GUIDES;
@@ -66,18 +68,6 @@ export class MapDataEditMode implements EditMode<MapData, GuideFeatureCollection
 
     getTooltips(props: ModeProps<MapData>): Tooltip[] {
         return DEFAULT_TOOLTIPS;
-    }
-
-    getSelectedStreets(props: ModeProps<MapData>): AnyGeoJson[] {
-        const { streets } = props.data;
-        const selectedStreets = props.selectedIndexes.map((selectedIndex) => streets.features[selectedIndex]);
-        return selectedStreets;
-    }
-
-    getSelectedBlocks(props: ModeProps<MapData>): AnyGeoJson[] {
-        const { blocks } = props.data;
-        const selectedBlocks = props.selectedIndexes.map((selectedIndex) => blocks.features[selectedIndex]);
-        return selectedBlocks;
     }
 
     getClickSequence(): Position[] {
@@ -122,23 +112,6 @@ export class MapDataEditMode implements EditMode<MapData, GuideFeatureCollection
         );
         const pickedIndexes = new Set([...pickedFeatures, ...pickedHandles]);
         return props.selectedIndexes.some((index) => pickedIndexes.has(index));
-    }
-
-    getAddStreetAction(): MapDataEditAction {
-        return {
-            updatedData: {
-                streets: {
-                    type: 'FeatureCollection',
-                    features: []
-                },
-                blocks: {
-                    type: 'FeatureCollection',
-                    features: []
-                }
-            },
-            editType: 'addStreet',
-            editContext: {}
-        };
     }
 
     createTentativeFeature(props: ModeProps<MapData>): TentativeFeature | null {

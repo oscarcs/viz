@@ -6,14 +6,11 @@ import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
-import { polygonize } from '@turf/turf';
 import { GeoJsonLayer } from 'deck.gl';
-// import { FeatureCollection as OGFeatureCollection, LineString } from 'geojson';
-// import tallinn from './tallinn.json';
 
 const INITIAL_VIEW_STATE = {
-    latitude: 59.4370,
-    longitude: 24.7536,
+    latitude: 0,
+    longitude: 0,
     zoom: 14,
     bearing: 0,
     pitch: 30
@@ -25,9 +22,7 @@ function Root() {
     
     React.useEffect(() => {
         try {
-            // const data = tallinn as FeatureCollection;
-            // setStreetsData(data);
-            // setBlocksData(polygonize(data as OGFeatureCollection<LineString>) as FeatureCollection);
+
         }
         catch (error) {
             console.error('Error processing GeoJSON data:', error);

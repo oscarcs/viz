@@ -1,12 +1,13 @@
 import { Node } from "./Node";
 import { Edge } from "./Edge";
 import { EdgeRing } from "./EdgeRing";
-import { flattenEach, coordReduce, featureOf, AllGeoJSON } from "@turf/turf";
+import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection } from "@turf/turf";
 import {
     FeatureCollection,
     LineString,
     MultiLineString,
     Feature,
+    Polygon,
 } from "geojson";
 
 /**
@@ -70,6 +71,32 @@ class Graph {
         });
 
         return graph;
+    }
+
+    /**
+     * Polygonizes the graph.
+     * @returns {FeatureCollection<Polygon>} - The polygonized graph
+     */
+    polygonize(): FeatureCollection<Polygon> {
+        this.deleteDangles();
+
+        this.deleteCutEdges();
+
+        const holes: EdgeRing[] = [];
+        const shells: EdgeRing[] = [];
+
+        this.getEdgeRings()
+            .filter((ring) => ring.isValid())
+            .forEach((ring) => {
+                if (ring.isHole()) holes.push(ring);
+                else shells.push(ring);
+            });
+
+        holes.forEach((hole) => {
+            if (EdgeRing.findEdgeRingContaining(hole, shells)) shells.push(hole);
+        });
+
+        return featureCollection(shells.map((shell) => shell.toPolygon()));
     }
 
     /**
