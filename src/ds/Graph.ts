@@ -32,11 +32,6 @@ function validateGeoJson(geoJson: AllGeoJSON) {
 
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
- *
- * Although, this class is inspired by GEOS's `geos::operation::polygonize::PolygonizeGraph`,
- * it isn't a rewrite. As regards algorithm, this class implements the same logic, but it
- * isn't a javascript transcription of the C++ source.
- *
  * This graph is directed (both directions are created)
  */
 class Graph {
@@ -92,9 +87,8 @@ class Graph {
     }
 
     /**
-     * Adds an Edge and its symetricall.
-     *
-     * Edges are added symetrically, i.e.: we also add its symetric
+     * Adds an Edge.
+     * Edges are added symetrically, i.e. we add edge A->B and B->A.
      *
      * @param {Node} from - Node which starts the Edge
      * @param {Node} to - Node which ends the Edge

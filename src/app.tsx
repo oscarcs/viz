@@ -58,10 +58,8 @@ function Root() {
             editHandleType: 'point',
             onEdit: ({ updatedData, editType }) => {
                 if (editType !== 'addTentativePosition') {
-                    setStreetsData(updatedData);
-                    setBlocksData(polygonize(updatedData as any) as FeatureCollection);
-
-                    console.log(editType, updatedData as any, polygonize(updatedData as any));
+                    setStreetsData(updatedData.streets);
+                    setBlocksData(updatedData.blocks);
                 }
             }
         })

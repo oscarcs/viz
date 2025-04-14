@@ -1,10 +1,8 @@
 import {
     ClickEvent,
     FeatureCollection,
-    GeoJsonEditMode,
     getPickedEditHandle,
     GuideFeatureCollection,
-    EditAction,
     LineString,
     ModeProps,
     PointerMoveEvent,
@@ -12,18 +10,19 @@ import {
     Tooltip
 } from "@deck.gl-community/editable-layers";
 import { distance, lineIntersect } from '@turf/turf';
+import { MapData, MapDataEditMode } from "./map-data-edit-mode";
 
 interface Intersection {
     point: Position;
     distance: number;
 }
-export class DrawStreetMode extends GeoJsonEditMode {
+
+export class DrawStreetMode extends MapDataEditMode {
     dist = 0;
     position: Position = null!;
-    
     elems: Position[] = [];
-    
-    handleClick(event: ClickEvent, props: ModeProps<FeatureCollection>) {
+
+    handleClick(event: ClickEvent, props: ModeProps<MapData>) {
         const { picks } = event;
         const clickedEditHandle = getPickedEditHandle(picks);
 
@@ -46,33 +45,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
             Array.isArray(clickedEditHandle.properties.positionIndexes) &&
             clickedEditHandle.properties.positionIndexes[0] === clickSequence.length - 1
         ) {
-            // They clicked the last point (or double-clicked), so add the LineString
-            // reset distance
-            this.dist = 0;
-            const lineStringToAdd: LineString = {
-                type: 'LineString',
-                coordinates: [...clickSequence]
-            };
-
-            this.resetClickSequence();
-
-            // Process street intersections
-            const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
-            const featuresToAdd: FeatureCollection = {
-                type: 'FeatureCollection',
-                features: streetSegments.map(segment => ({
-                    type: 'Feature',
-                    properties: {},
-                    geometry: segment
-                }))
-            }
-            
-            let currentData = props.data;
-            const editAction = this.getAddManyFeaturesAction(featuresToAdd, currentData);
-            if (editAction) {
-                props.onEdit(editAction);
-                currentData = editAction.updatedData;
-            }
+            this.handleNewLineString(props, clickSequence);
         }
         else if (positionAdded) {
             // new tentative point
@@ -87,36 +60,10 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
     }
 
-    handleKeyUp(event: KeyboardEvent, props: ModeProps<FeatureCollection>) {
+    handleKeyUp(event: KeyboardEvent, props: ModeProps<MapData>) {
         const { key } = event;
         if (key === 'Enter') {
-            const clickSequence = this.getClickSequence();
-            if (clickSequence.length > 1) {
-                const lineStringToAdd: LineString = {
-                    type: 'LineString',
-                    coordinates: [...clickSequence]
-                };
-
-                this.resetClickSequence();
-                
-                // Process street intersections
-                const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
-                const featuresToAdd: FeatureCollection = {
-                    type: 'FeatureCollection',
-                    features: streetSegments.map(segment => ({
-                        type: 'Feature',
-                        properties: {},
-                        geometry: segment
-                    }))
-                }
-                
-                let currentData = props.data;
-                const editAction = this.getAddManyFeaturesAction(featuresToAdd, currentData);
-                if (editAction) {
-                    props.onEdit(editAction);
-                    currentData = editAction.updatedData;
-                }
-            }
+            this.handleNewLineString(props, this.getClickSequence());
         }
         else if (key === 'Escape') {
             this.resetClickSequence();
@@ -128,7 +75,47 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
     }
 
-    getGuides(props: ModeProps<FeatureCollection>): GuideFeatureCollection {
+    handleNewLineString(props: ModeProps<MapData>, clickSequence: Position[]) {
+        // reset distance
+        this.dist = 0;
+        
+        const lineStringToAdd: LineString = {
+            type: 'LineString',
+            coordinates: [...clickSequence]
+        };
+
+        this.resetClickSequence();
+
+        // Process street intersections
+        // const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
+        // const featuresToAdd: FeatureCollection = {
+        //     type: 'FeatureCollection',
+        //     features: streetSegments.map(segment => ({
+        //         type: 'Feature',
+        //         properties: {},
+        //         geometry: segment
+        //     }))
+        // }
+        
+        // let currentData = props.data;
+
+        // const streets = {
+        //     type: 'FeatureCollection',
+        //     features: [...props.data.blocks.features, lineStringToAdd]
+        // };
+        // const blocks = {
+        //     type: 'FeatureCollection',
+        //     features: []
+        // };
+
+        // const editAction = this.getUpdatedMapDataAction(streets, blocks);
+        // if (editAction) {
+        //     props.onEdit(editAction);
+        //     currentData = editAction.updatedData;
+        // }
+    }
+
+    getGuides(props: ModeProps<MapData>): GuideFeatureCollection {
         const { lastPointerMoveEvent } = props;
         const clickSequence = this.getClickSequence();
 
@@ -175,15 +162,8 @@ export class DrawStreetMode extends GeoJsonEditMode {
         return guides;
     }
 
-    handlePointerMove(_: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
+    handlePointerMove(_: PointerMoveEvent, props: ModeProps<MapData>) {
         props.onUpdateCursor('cell');
-    }
-
-    getTooltips(props: ModeProps<FeatureCollection>): Tooltip[] {
-        return this._getTooltips({
-            modeConfig: props.modeConfig,
-            dist: this.dist
-        });
     }
 
     calculateInfoDraw(clickSequence: string | any[]) {
@@ -195,6 +175,13 @@ export class DrawStreetMode extends GeoJsonEditMode {
                 clickSequence[clickSequence.length - 1]
             );
         }
+    }
+
+    getTooltips(props: ModeProps<MapData>): Tooltip[] {
+        return this._getTooltips({
+            modeConfig: props.modeConfig,
+            dist: this.dist
+        });
     }
 
     _getTooltips = this.memoize((args: { modeConfig?: any, dist: number }): Tooltip[] => {
@@ -219,14 +206,6 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
         return tooltips;
     });
-
-    private getModifyExistingFeaturesAction(updatedData: FeatureCollection): EditAction<FeatureCollection> {
-        return {
-            updatedData,
-            editType: 'addFeature',
-            editContext: null
-        };
-    }
 
     private processStreetIntersections(newStreet: LineString, existingStreets: FeatureCollection): LineString[] {
         if (!existingStreets.features || existingStreets.features.length === 0) {
