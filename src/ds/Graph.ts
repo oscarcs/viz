@@ -124,7 +124,6 @@ class Graph {
             const end = street.coordinates[i + 1];
             
             const intersections = this.findAllIntersections(start, end);
-            
             intersections.sort((a, b) => a.distance - b.distance);
             
             const points = [start];
@@ -151,6 +150,7 @@ class Graph {
         }
 
         console.log(this.edges, this.nodes);
+        console.log(this.edges.length / 2, Object.keys(this.nodes).length);
     }
 
     // Check if an edge already exists between two nodes
