@@ -73,6 +73,42 @@ class Graph {
         return graph;
     }
 
+    getEdges() {
+        return this.edges;
+    }
+
+    getNodes() {
+        return this.nodes;
+    }
+
+    toFeatureCollection(): FeatureCollection<LineString> {
+        const processedEdges = new Set<string>();
+        const features: any[] = [];
+
+        // Create a feature for each unique edge
+        this.edges.forEach(edge => {
+            const edgeId = `${edge.from.id}-${edge.to.id}`;
+            const reverseEdgeId = `${edge.to.id}-${edge.from.id}`;
+            
+            // Only process one direction of each edge
+            if (!processedEdges.has(edgeId) && !processedEdges.has(reverseEdgeId)) {
+                processedEdges.add(edgeId);
+                processedEdges.add(reverseEdgeId);
+                
+                features.push({
+                    type: 'Feature',
+                    properties: {},
+                    geometry: {
+                        type: 'LineString',
+                        coordinates: [edge.from.coordinates, edge.to.coordinates]
+                    }
+                });
+            }
+        });
+
+        return featureCollection(features);
+    }
+
     /**
      * Polygonizes the graph.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
@@ -122,7 +158,7 @@ class Graph {
      */
     addEdge(from: Node, to: Node) {
         const edge = new Edge(from, to),
-            symetricEdge = edge.getSymetric();
+            symetricEdge = edge.getSymmetric();
 
         this.edges.push(edge);
         this.edges.push(symetricEdge);
@@ -173,8 +209,8 @@ class Graph {
 
         // Cut-edges (bridges) are edges where both edges have the same label
         this.edges.forEach((edge) => {
-            if (edge.label === edge.symetric!.label) {
-                this.removeEdge(edge.symetric!);
+            if (edge.label === edge.symmetric!.label) {
+                this.removeEdge(edge.symmetric!);
                 this.removeEdge(edge);
             }
         });
@@ -197,7 +233,7 @@ class Graph {
             node.getOuterEdges().forEach((edge, i) => {
                 node.getOuterEdge(
                     (i === 0 ? node.getOuterEdges().length : i) - 1
-                ).symetric!.next = edge;
+                ).symmetric!.next = edge;
             });
         }
     }
@@ -219,7 +255,7 @@ class Graph {
 
         for (let i = edges.length - 1; i >= 0; --i) {
             let de = edges[i],
-                sym = de.symetric,
+                sym = de.symmetric,
                 outDE,
                 inDE;
 

@@ -1,5 +1,6 @@
-import { Feature, Polygon } from "geojson";
+import { Feature, FeatureCollection as GeoJSONFC, Polygon } from "geojson";
 import { booleanPointInPolygon, point } from "@turf/turf";
+import { FeatureCollection as DeckGLFC } from "@deck.gl-community/editable-layers";
 
 // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/sign#Polyfill
 function mathSign(x: number) {

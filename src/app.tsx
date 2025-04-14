@@ -7,11 +7,13 @@ import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers'
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
+import Graph from './ds/Graph';
+import { MapData } from './editors/map-data-edit-mode';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
     longitude: 0,
-    zoom: 14,
+    zoom: 10,
     bearing: 0,
     pitch: 30
 };
@@ -22,7 +24,27 @@ function Root() {
     
     React.useEffect(() => {
         try {
-
+            setBlocksData({
+                type: 'FeatureCollection',
+                features: [
+                    {
+                        type: 'Feature',
+                        properties: { id: 1 },
+                        geometry: {
+                            type: 'Polygon',
+                            coordinates: [
+                                [
+                                    [0, 0],
+                                    [0.1, 0],
+                                    [0.1, 0.1],
+                                    [0, 0.1],
+                                    [0, 0]
+                                ]
+                            ]
+                        }
+                    }
+                ]
+            });
         }
         catch (error) {
             console.error('Error processing GeoJSON data:', error);
@@ -51,10 +73,14 @@ function Root() {
             pickable: true,
             selectedFeatureIndexes: [],
             editHandleType: 'point',
-            onEdit: ({ updatedData, editType }) => {
+            onEdit: (updatedData: MapData, editType) => {
                 if (editType !== 'addTentativePosition') {
-                    setStreetsData(updatedData.streets);
-                    setBlocksData(updatedData.blocks);
+
+                    const streets = updatedData.streetGraph.toFeatureCollection();
+                    setStreetsData(streets as FeatureCollection);
+                    
+                    // const blocks = ;
+                    // setBlocksData(blocks);
                 }
             }
         })

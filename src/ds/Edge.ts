@@ -8,7 +8,7 @@ import { EdgeRing } from "./EdgeRing";
  */
 class Edge {
     public label?: number;
-    public symetric?: Edge;
+    public symmetric?: Edge;
     public from: Node;
     public to: Node;
     public next?: Edge;
@@ -19,13 +19,13 @@ class Edge {
      *
      * @returns {Edge} - Symetric Edge.
      */
-    getSymetric() {
-        if (!this.symetric) {
-            this.symetric = new Edge(this.to, this.from);
-            this.symetric.symetric = this;
+    getSymmetric() {
+        if (!this.symmetric) {
+            this.symmetric = new Edge(this.to, this.from);
+            this.symmetric.symmetric = this;
         }
 
-        return this.symetric;
+        return this.symmetric;
     }
 
     /**
@@ -38,7 +38,7 @@ class Edge {
 
         this.next = undefined; //< The edge to be computed after
         this.label = undefined; //< Used in order to detect Cut Edges (Bridges)
-        this.symetric = undefined; //< The symetric edge of this
+        this.symmetric = undefined; //< The symetric edge of this
         this.ring = undefined; //< EdgeRing in which the Edge is
 
         this.from.addOuterEdge(this);

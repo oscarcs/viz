@@ -15,7 +15,6 @@ import {
     EditMode,
     FeatureWithProps,
     Point,
-    AnyGeoJson,
 } from '@deck.gl-community/editable-layers';
 import Graph from '../ds/Graph';
 export type MapDataEditAction = EditAction<MapData>;
@@ -54,13 +53,11 @@ const DEFAULT_GUIDES: GuideFeatureCollection = {
 const DEFAULT_TOOLTIPS: Tooltip[] = [];
 
 export interface MapData {
-    streets: FeatureCollection;
-    blocks: FeatureCollection;
+    streetGraph: Graph;
 }
 
 export class MapDataEditMode implements EditMode<MapData, GuideFeatureCollection> {
     _clickSequence: Position[] = [];
-    _streetNetwork: Graph | null = null;
 
     getGuides(props: ModeProps<MapData>): GuideFeatureCollection {
         return DEFAULT_GUIDES;
@@ -145,6 +142,39 @@ export class MapDataEditMode implements EditMode<MapData, GuideFeatureCollection
                 editContext: {}
             });
         }
+    }
+
+    /**
+     * Adds a street (sequence of points) to the Graph
+     */
+    addStreetToGraph(props: ModeProps<MapData>, points: Position[]): void {
+        if (!props.data.streetGraph || points.length < 2) {
+            return;
+        }
+
+        // Add each segment as an edge in the graph
+        for (let i = 0; i < points.length - 1; i++) {
+            const fromNode = props.data.streetGraph.getNode(points[i]);
+            const toNode = props.data.streetGraph.getNode(points[i + 1]);
+            
+            // Check if this edge already exists
+            const existingEdges = fromNode.getOuterEdges();
+            const edgeExists = existingEdges.some(edge => 
+                this.isSamePoint(edge.to.coordinates, toNode.coordinates)
+            );
+
+            // Only add new edges
+            if (!edgeExists) {
+                props.data.streetGraph.addEdge(fromNode, toNode);
+            }
+        }
+    }
+    
+    /**
+     * Utility method to check if two points are the same
+     */
+    isSamePoint(a: Position, b: Position): boolean {
+        return Math.abs(a[0] - b[0]) < 0.000001 && Math.abs(a[1] - b[1]) < 0.000001;
     }
 }
 

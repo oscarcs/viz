@@ -80,26 +80,42 @@ export class DrawStreetMode extends MapDataEditMode {
         // Reset tooltip distance
         this.dist = 0;
 
-        // TODO: Use the click sequence to add a new street to underlying map data Graph data structure 
+        if (clickSequence.length < 2) {
+            this.resetClickSequence();
+            return;
+        }
 
+        // Create a LineString from the click sequence
+        const newStreetGeometry: LineString = {
+            type: 'LineString',
+            coordinates: clickSequence
+        };
+
+        // Find intersections with existing streets
+        // const existingStreets = props.data.streets || { type: 'FeatureCollection', features: [] };
+        // const intersections = this.findIntersections(newStreetGeometry, existingStreets);
+        
+        // Add new points at intersections to the click sequence
+        // const augmentedClickSequence = this.insertIntersectionPoints(clickSequence, intersections);
+        
+        // Add nodes and edges to the graph (using parent class method)
+        this.addStreetToGraph(props, clickSequence);
+        
         this.resetClickSequence();
 
-        // TODO: Process street intersections
-        // const streetSegments = this.processStreetIntersections(lineStringToAdd, props.data);
-        // const featuresToAdd: FeatureCollection = {
-        //     type: 'FeatureCollection',
-        //     features: streetSegments.map(segment => ({
-        //         type: 'Feature',
-        //         properties: {},
-        //         geometry: segment
-        //     }))
-        // }
-
-        // TODO: Generate a new MapDataAction to return back to the app.
-        // const editAction = this.getUpdatedMapDataAction();
-        // if (editAction) {
-        //     props.onEdit(editAction);
-        // }
+        props.onEdit({
+            updatedData: {
+                streetGraph: props.data.streetGraph,
+            },
+            editType: 'addFeature',
+            editContext: {
+                // feature: {
+                //     type: 'Feature',
+                //     properties: {},
+                //     geometry: newStreetGeometry
+                // }
+            }
+        });
     }
 
     getGuides(props: ModeProps<MapData>): GuideFeatureCollection {
@@ -149,8 +165,8 @@ export class DrawStreetMode extends MapDataEditMode {
         return guides;
     }
 
-    handlePointerMove(_: PointerMoveEvent, props: ModeProps<MapData>) {
-        props.onUpdateCursor('cell');
+    handlePointerMove(event: PointerMoveEvent, props: ModeProps<MapData>) {
+        props.onUpdateCursor('crosshair');
     }
 
     calculateInfoDraw(clickSequence: string | any[]) {
@@ -193,107 +209,6 @@ export class DrawStreetMode extends MapDataEditMode {
         }
         return tooltips;
     });
-
-    private processStreetIntersections(newStreet: LineString, existingStreets: FeatureCollection): LineString[] {
-        if (!existingStreets.features || existingStreets.features.length === 0) {
-            return [newStreet];
-        }
-
-        const segmentStart = newStreet.coordinates[0];
-        const intersectionPoints: { point: Position, distance: number }[] = [];
-
-        for (const feature of existingStreets.features) {
-            if (feature.geometry.type !== 'LineString') {
-                continue;
-            }
-
-            intersectionPoints.push(...lineIntersect(newStreet, feature.geometry as LineString).features.map((intersection: any) => {
-                return {
-                    point: intersection.geometry.coordinates,
-                    distance: distance(segmentStart, intersection.geometry.coordinates)
-                };
-            }));
-        }
-
-        const segments = this.splitLineStringAtIntersections(newStreet, intersectionPoints);
-
-        return segments;
-    }
-
-    private splitLineStringAtIntersections(lineString: LineString, intersections: Intersection[]): LineString[] {
-        if (intersections.length === 0) {
-            return [lineString];
-        }
-
-        // Sort intersections by distance from the start of the line
-        intersections.sort((a, b) => a.distance - b.distance);
-
-        const coordinates = lineString.coordinates;
-        const segments: LineString[] = [];
-        
-        // Start with the first point of the linestring
-        let currentSegment: Position[] = [coordinates[0]];
-        let lastIntersection: Position | null = null;
-
-        // Process each segment in the original linestring
-        for (let i = 0; i < coordinates.length - 1; i++) {
-            const start = coordinates[i];
-            const end = coordinates[i + 1];
-            
-            // Find intersections on this segment
-            const segmentIntersections = intersections
-                .filter(ip => {
-                    // Check if the intersection falls on this line segment
-                    const d1 = distance(start, ip.point);
-                    const d2 = distance(ip.point, end);
-                    const segmentLength = distance(start, end);
-                    
-                    // Allow small error due to floating point precision
-                    return Math.abs(d1 + d2 - segmentLength) < 0.000001;
-                })
-                .sort((a, b) => distance(start, a.point) - distance(start, b.point));
-   
-            // Process each intersection on this segment
-            for (const intersection of segmentIntersections) {
-                // Skip if this is the same as our last point
-                if (lastIntersection && this.isSamePoint(lastIntersection, intersection.point)) {
-                    continue;
-                }
-                
-                // Add intersection to current segment
-                currentSegment.push(intersection.point);
-                
-                // Create segment and start a new one
-                segments.push({
-                    type: 'LineString',
-                    coordinates: [...currentSegment]
-                });
-                
-                currentSegment = [intersection.point];
-                lastIntersection = intersection.point;
-            }
-            
-            // Add the endpoint of this segment
-            if (!lastIntersection || !this.isSamePoint(lastIntersection, end)) {
-                currentSegment.push(end);
-                lastIntersection = null;
-            }
-        }
-
-        // Add the final segment if it has at least 2 points
-        if (currentSegment.length >= 2) {
-            segments.push({
-                type: 'LineString',
-                coordinates: [...currentSegment]
-            });
-        }
-
-        return segments;
-    }
-
-    private isSamePoint = (a: Position, b: Position): boolean => {
-        return Math.abs(a[0] - b[0]) < 0.000001 && Math.abs(a[1] - b[1]) < 0.000001;
-    };
     
     private isEqual(a: any, b: any) {
         if (a === b) {
@@ -331,6 +246,82 @@ export class DrawStreetMode extends MapDataEditMode {
             }
             return cachedResult;
         };
+    }
+
+    /**
+     * Finds all intersections between a new street and existing streets
+     */
+    private findIntersections(newStreet: LineString, existingStreets: FeatureCollection): Intersection[] {
+        if (!existingStreets.features || existingStreets.features.length === 0) {
+            return [];
+        }
+
+        const segmentStart = newStreet.coordinates[0];
+        const intersectionPoints: Intersection[] = [];
+
+        for (const feature of existingStreets.features) {
+            if (feature.geometry.type !== 'LineString') {
+                continue;
+            }
+
+            intersectionPoints.push(...lineIntersect(newStreet, feature.geometry as LineString).features.map((intersection: any) => {
+                return {
+                    point: intersection.geometry.coordinates,
+                    distance: distance(segmentStart, intersection.geometry.coordinates)
+                };
+            }));
+        }
+
+        // Sort intersections by distance from start
+        return intersectionPoints.sort((a, b) => a.distance - b.distance);
+    }
+
+    /**
+     * Inserts intersection points into the click sequence
+     */
+    private insertIntersectionPoints(clickSequence: Position[], intersections: Intersection[]): Position[] {
+        if (intersections.length === 0) {
+            return clickSequence;
+        }
+
+        const result: Position[] = [];
+        let lastPoint = clickSequence[0];
+        result.push(lastPoint);
+
+        for (let i = 1; i < clickSequence.length; i++) {
+            const currentPoint = clickSequence[i];
+            const segment = {
+                type: 'LineString',
+                coordinates: [lastPoint, currentPoint]
+            } as LineString;
+
+            // Find intersections on this segment
+            const segmentIntersections = intersections.filter(ip => {
+                // Check if the intersection falls on this line segment
+                const d1 = distance(lastPoint, ip.point);
+                const d2 = distance(ip.point, currentPoint);
+                const segmentLength = distance(lastPoint, currentPoint);
+                
+                // Allow small error due to floating point precision
+                return Math.abs(d1 + d2 - segmentLength) < 0.000001;
+            }).sort((a, b) => distance(lastPoint, a.point) - distance(lastPoint, b.point));
+
+            // Add intersection points
+            for (const intersection of segmentIntersections) {
+                if (!this.isSamePoint(result[result.length - 1], intersection.point)) {
+                    result.push(intersection.point);
+                }
+            }
+
+            // Add the endpoint
+            if (!this.isSamePoint(result[result.length - 1], currentPoint)) {
+                result.push(currentPoint);
+            }
+
+            lastPoint = currentPoint;
+        }
+
+        return result;
     }
 }
 
