@@ -8,7 +8,6 @@ import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
-import { MapData } from './editors/map-data-edit-mode';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -19,6 +18,9 @@ const INITIAL_VIEW_STATE = {
 };
 
 function Root() {
+    const [streetGraph] = React.useState<Graph>(new Graph());
+    
+    // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     
@@ -73,14 +75,12 @@ function Root() {
             pickable: true,
             selectedFeatureIndexes: [],
             editHandleType: 'point',
-            onEdit: (updatedData: MapData, editType) => {
+            onEdit: ({updatedData, editType}) => {
                 if (editType !== 'addTentativePosition') {
 
-                    const streets = updatedData.streetGraph.toFeatureCollection();
-                    setStreetsData(streets as FeatureCollection);
-                    
-                    // const blocks = ;
-                    // setBlocksData(blocks);
+                    streetGraph.addStreet(updatedData.features[0].geometry);
+                    setStreetsData(streetGraph.getStreetFeatureCollection() as any);
+                    // setBlocksData(streetGraph.polygonize() as any);
                 }
             }
         })

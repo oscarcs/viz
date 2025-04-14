@@ -110,6 +110,169 @@ class Graph {
     }
 
     /**
+     * Add a new street to the graph.
+     * It will split the street at intersections with existing edges and add new edges accordingly.
+     * @param street LineString - The street to add
+     */
+    addStreet(street: LineString) {
+        if (!street || !street.coordinates || street.coordinates.length < 2) {
+            return;
+        }
+
+        for (let i = 0; i < street.coordinates.length - 1; i++) {
+            const start = street.coordinates[i];
+            const end = street.coordinates[i + 1];
+            
+            const intersections = this.findAllIntersections(start, end);
+            
+            // Sort intersections by distance from start
+            intersections.sort((a, b) => a.distance - b.distance);
+            
+            // Add all points (start, intersections, end) in order
+            const points = [start];
+            intersections.forEach(intersection => {
+                points.push(intersection.point);
+            });
+            points.push(end);
+            
+            // Create edges between consecutive points
+            for (let j = 0; j < points.length - 1; j++) {
+                const fromNode = this.getNode(points[j]);
+                const toNode = this.getNode(points[j + 1]);
+                
+                // Add edge if it doesn't already exist
+                if (!this.edgeExists(fromNode, toNode)) {
+                    this.addEdge(fromNode, toNode);
+                }
+                
+                // If this point is an intersection, split the intersected edge
+                if (j > 0 && j < points.length - 1) {
+                    const intersection = intersections[j - 1];
+                    this.splitEdgeAtIntersection(intersection.edge, this.getNode(points[j]));
+                }
+            }
+        }
+    }
+
+    // Check if an edge already exists between two nodes
+    private edgeExists(fromNode: Node, toNode: Node): boolean {
+        return fromNode.getOuterEdges().some(edge => edge.to.id === toNode.id);
+    }
+
+    // Find all intersections between a segment and existing edges
+    private findAllIntersections(start: number[], end: number[]) {
+        const intersections = [];
+        const EPSILON = 1e-9; // Small value for floating point comparison
+        
+        for (const edge of this.edges) {
+            // Skip if we're checking the same edge
+            if ((this.pointsEqual(edge.from.coordinates, start, EPSILON) && 
+                 this.pointsEqual(edge.to.coordinates, end, EPSILON)) ||
+                (this.pointsEqual(edge.from.coordinates, end, EPSILON) && 
+                 this.pointsEqual(edge.to.coordinates, start, EPSILON))) {
+                continue;
+            }
+            
+            const intersection = this.lineIntersection(
+                start, end, edge.from.coordinates, edge.to.coordinates
+            );
+            
+            if (intersection) {
+                // Skip if intersection is at an endpoint (within epsilon)
+                if (this.pointsEqual(intersection, start, EPSILON) || 
+                    this.pointsEqual(intersection, end, EPSILON) ||
+                    this.pointsEqual(intersection, edge.from.coordinates, EPSILON) || 
+                    this.pointsEqual(intersection, edge.to.coordinates, EPSILON)) {
+                    continue;
+                }
+                
+                intersections.push({
+                    point: intersection,
+                    edge: edge,
+                    distance: this.distance(start, intersection)
+                });
+            }
+        }
+        
+        return intersections;
+    }
+
+    // Compare two points for equality, with optional epsilon for floating point comparison
+    private pointsEqual(p1: number[], p2: number[], epsilon = 0): boolean {
+        if (epsilon === 0) {
+            return p1[0] === p2[0] && p1[1] === p2[1];
+        }
+        else {
+            return Math.abs(p1[0] - p2[0]) < epsilon && Math.abs(p1[1] - p2[1]) < epsilon;
+        }
+    }
+
+    // Split an existing edge at the intersection point
+    private splitEdgeAtIntersection(edge: Edge, intersectionNode: Node) {
+        const fromNode = edge.from;
+        const toNode = edge.to;
+        
+        // Skip if the edge already connects to this intersection
+        if (fromNode.id === intersectionNode.id || toNode.id === intersectionNode.id) {
+            return;
+        }
+        
+        // Remove the original edge and its symmetric
+        this.removeEdge(edge);
+        this.removeEdge(edge.symmetric!);
+        
+        // Add new edges through the intersection
+        this.addEdge(fromNode, intersectionNode);
+        this.addEdge(intersectionNode, toNode);
+    }
+
+    private lineIntersection(line1Start: number[], line1End: number[], line2Start: number[], line2End: number[]): number[] | null {
+        const x1 = line1Start[0], y1 = line1Start[1];
+        const x2 = line1End[0], y2 = line1End[1];
+        const x3 = line2Start[0], y3 = line2Start[1];
+        const x4 = line2End[0], y4 = line2End[1];
+
+        const denominator = ((y4 - y3) * (x2 - x1)) - ((x4 - x3) * (y2 - y1));
+        
+        // Lines are parallel or coincident
+        if (Math.abs(denominator) < 1e-10) {
+            return null;
+        }
+        
+        const ua = (((x4 - x3) * (y1 - y3)) - ((y4 - y3) * (x1 - x3))) / denominator;
+        const ub = (((x2 - x1) * (y1 - y3)) - ((y2 - y1) * (x1 - x3))) / denominator;
+        
+        // Check if intersection is within both line segments
+        if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
+            return null;
+        }
+        
+        // Calculate intersection point
+        const x = x1 + ua * (x2 - x1);
+        const y = y1 + ua * (y2 - y1);
+        
+        return [x, y];
+    }
+
+    private distance(point1: number[], point2: number[]): number {
+        const dx = point2[0] - point1[0];
+        const dy = point2[1] - point1[1];
+        return Math.sqrt(dx * dx + dy * dy);
+    }
+
+    getStreetFeatureCollection(): FeatureCollection<LineString> {
+        const features: Feature<LineString>[] = this.edges.map((edge) => ({
+            type: "Feature",
+            properties: {},
+            geometry: {
+                type: "LineString",
+                coordinates: [edge.from.coordinates, edge.to.coordinates],
+            },
+        }));
+        return featureCollection(features);
+    }
+
+    /**
      * Polygonizes the graph.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
      */

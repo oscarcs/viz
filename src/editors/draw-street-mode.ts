@@ -1,6 +1,7 @@
 import {
     ClickEvent,
     FeatureCollection,
+    GeoJsonEditMode,
     getPickedEditHandle,
     GuideFeatureCollection,
     LineString,
@@ -9,20 +10,14 @@ import {
     Position,
     Tooltip
 } from "@deck.gl-community/editable-layers";
-import { distance, lineIntersect } from '@turf/turf';
-import { MapData, MapDataEditMode } from "./map-data-edit-mode";
+import { distance } from '@turf/turf';
 
-interface Intersection {
-    point: Position;
-    distance: number;
-}
-
-export class DrawStreetMode extends MapDataEditMode {
+export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
     position: Position = null!;
     elems: Position[] = [];
 
-    handleClick(event: ClickEvent, props: ModeProps<MapData>) {
+    handleClick(event: ClickEvent, props: ModeProps<FeatureCollection>) {
         const { picks } = event;
         const clickedEditHandle = getPickedEditHandle(picks);
 
@@ -60,7 +55,7 @@ export class DrawStreetMode extends MapDataEditMode {
         }
     }
 
-    handleKeyUp(event: KeyboardEvent, props: ModeProps<MapData>) {
+    handleKeyUp(event: KeyboardEvent, props: ModeProps<FeatureCollection>) {
         const { key } = event;
         
         if (key === 'Enter') {
@@ -76,7 +71,7 @@ export class DrawStreetMode extends MapDataEditMode {
         }
     }
 
-    handleNewStreet(props: ModeProps<MapData>, clickSequence: Position[]) {
+    handleNewStreet(props: ModeProps<FeatureCollection>, clickSequence: Position[]) {
         // Reset tooltip distance
         this.dist = 0;
 
@@ -85,40 +80,27 @@ export class DrawStreetMode extends MapDataEditMode {
             return;
         }
 
+        console.log(clickSequence.length);
+
         // Create a LineString from the click sequence
         const newStreetGeometry: LineString = {
             type: 'LineString',
             coordinates: clickSequence
         };
-
-        // Find intersections with existing streets
-        // const existingStreets = props.data.streets || { type: 'FeatureCollection', features: [] };
-        // const intersections = this.findIntersections(newStreetGeometry, existingStreets);
-        
-        // Add new points at intersections to the click sequence
-        // const augmentedClickSequence = this.insertIntersectionPoints(clickSequence, intersections);
-        
-        // Add nodes and edges to the graph (using parent class method)
-        this.addStreetToGraph(props, clickSequence);
         
         this.resetClickSequence();
 
-        props.onEdit({
-            updatedData: {
-                streetGraph: props.data.streetGraph,
-            },
-            editType: 'addFeature',
-            editContext: {
-                // feature: {
-                //     type: 'Feature',
-                //     properties: {},
-                //     geometry: newStreetGeometry
-                // }
-            }
+        const editAction = this.getAddFeatureAction(newStreetGeometry, {
+            type: 'FeatureCollection',
+            features: []
         });
+
+        if (editAction) {
+            props.onEdit(editAction);
+        }
     }
 
-    getGuides(props: ModeProps<MapData>): GuideFeatureCollection {
+    getGuides(props: ModeProps<FeatureCollection>): GuideFeatureCollection {
         const { lastPointerMoveEvent } = props;
         const clickSequence = this.getClickSequence();
 
@@ -165,8 +147,8 @@ export class DrawStreetMode extends MapDataEditMode {
         return guides;
     }
 
-    handlePointerMove(event: PointerMoveEvent, props: ModeProps<MapData>) {
-        props.onUpdateCursor('crosshair');
+    handlePointerMove(_: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
+        props.onUpdateCursor('cell');
     }
 
     calculateInfoDraw(clickSequence: string | any[]) {
@@ -180,7 +162,7 @@ export class DrawStreetMode extends MapDataEditMode {
         }
     }
 
-    getTooltips(props: ModeProps<MapData>): Tooltip[] {
+    getTooltips(props: ModeProps<FeatureCollection>): Tooltip[] {
         return this._getTooltips({
             modeConfig: props.modeConfig,
             dist: this.dist
@@ -246,82 +228,6 @@ export class DrawStreetMode extends MapDataEditMode {
             }
             return cachedResult;
         };
-    }
-
-    /**
-     * Finds all intersections between a new street and existing streets
-     */
-    private findIntersections(newStreet: LineString, existingStreets: FeatureCollection): Intersection[] {
-        if (!existingStreets.features || existingStreets.features.length === 0) {
-            return [];
-        }
-
-        const segmentStart = newStreet.coordinates[0];
-        const intersectionPoints: Intersection[] = [];
-
-        for (const feature of existingStreets.features) {
-            if (feature.geometry.type !== 'LineString') {
-                continue;
-            }
-
-            intersectionPoints.push(...lineIntersect(newStreet, feature.geometry as LineString).features.map((intersection: any) => {
-                return {
-                    point: intersection.geometry.coordinates,
-                    distance: distance(segmentStart, intersection.geometry.coordinates)
-                };
-            }));
-        }
-
-        // Sort intersections by distance from start
-        return intersectionPoints.sort((a, b) => a.distance - b.distance);
-    }
-
-    /**
-     * Inserts intersection points into the click sequence
-     */
-    private insertIntersectionPoints(clickSequence: Position[], intersections: Intersection[]): Position[] {
-        if (intersections.length === 0) {
-            return clickSequence;
-        }
-
-        const result: Position[] = [];
-        let lastPoint = clickSequence[0];
-        result.push(lastPoint);
-
-        for (let i = 1; i < clickSequence.length; i++) {
-            const currentPoint = clickSequence[i];
-            const segment = {
-                type: 'LineString',
-                coordinates: [lastPoint, currentPoint]
-            } as LineString;
-
-            // Find intersections on this segment
-            const segmentIntersections = intersections.filter(ip => {
-                // Check if the intersection falls on this line segment
-                const d1 = distance(lastPoint, ip.point);
-                const d2 = distance(ip.point, currentPoint);
-                const segmentLength = distance(lastPoint, currentPoint);
-                
-                // Allow small error due to floating point precision
-                return Math.abs(d1 + d2 - segmentLength) < 0.000001;
-            }).sort((a, b) => distance(lastPoint, a.point) - distance(lastPoint, b.point));
-
-            // Add intersection points
-            for (const intersection of segmentIntersections) {
-                if (!this.isSamePoint(result[result.length - 1], intersection.point)) {
-                    result.push(intersection.point);
-                }
-            }
-
-            // Add the endpoint
-            if (!this.isSamePoint(result[result.length - 1], currentPoint)) {
-                result.push(currentPoint);
-            }
-
-            lastPoint = currentPoint;
-        }
-
-        return result;
     }
 }
 
