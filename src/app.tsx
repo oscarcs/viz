@@ -8,6 +8,7 @@ import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
+import { ToolbarWidget } from './widget/ToolbarWidget';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -68,6 +69,7 @@ function Root() {
             layers={layers}
         >
             <CompassWidget />
+            <ToolbarWidget />
         </DeckGL>
     );
 }

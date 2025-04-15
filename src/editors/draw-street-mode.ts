@@ -45,7 +45,6 @@ export class DrawStreetMode extends GeoJsonEditMode {
         else if (positionAdded) {
             // new tentative point
             props.onEdit({
-                // data is the same
                 updatedData: props.data,
                 editType: 'addTentativePosition',
                 editContext: {
