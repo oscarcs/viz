@@ -68,7 +68,7 @@ function Root() {
             initialViewState={INITIAL_VIEW_STATE}
             layers={layers}
         >
-            <CompassWidget />
+            {/* <CompassWidget /> */}
             <ToolbarWidget />
         </DeckGL>
     );
