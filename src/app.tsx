@@ -1,7 +1,6 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
-import { CompassWidget } from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer, LineString } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
@@ -9,6 +8,7 @@ import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
+import { CustomCompassWidget } from './widget/CustomCompassWidget';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -68,7 +68,7 @@ function Root() {
             initialViewState={INITIAL_VIEW_STATE}
             layers={layers}
         >
-            {/* <CompassWidget /> */}
+            <CustomCompassWidget />
             <ToolbarWidget />
         </DeckGL>
     );
