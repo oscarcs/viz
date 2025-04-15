@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { Widget } from "@deck.gl/core";
 import { useWidget } from "@deck.gl/react";
 import { createPortal } from "react-dom";
-import { Spline } from "lucide-react";
+import { Hand, Spline } from "lucide-react";
 
 
 class ToolbarWidgetClass implements Widget {
@@ -30,18 +30,14 @@ export const ToolbarWidget = (props: any) => {
     return createPortal(
         <div className="flex flex-col gap-2">
             <ToolbarButton
-                icon={<Spline />}
-                label="Add Street"
-                onClick={() => {
-                    props.onAddStreet();
-                }}
+                icon={<Hand size={20} />}
+                label="Select"
+                onClick={() => { }}
             />
             <ToolbarButton
-                icon={<p>B</p>}
-                label="Add Block"
-                onClick={() => {
-                    props.onAddBlock();
-                }}
+                icon={<Spline size={20} />}
+                label="Add Street"
+                onClick={() => { }}
             />
         </div>,
         element
@@ -59,7 +55,7 @@ const ToolbarButton = ({ icon, label, onClick }: ToolbarButtonProps) => {
     
     return (
         <button 
-            className="border border-gray-300 rounded-md bg-gray-100 p-2 relative flex items-center"
+            className="pointer-events-auto cursor-pointer w-full border border-gray-300 rounded-md bg-gray-100/70 p-3 relative flex items-center"
             onClick={onClick}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
@@ -68,7 +64,7 @@ const ToolbarButton = ({ icon, label, onClick }: ToolbarButtonProps) => {
                 {icon}
             </div>
             {isHovered && (
-                <span className="absolute left-full ml-2 whitespace-nowrap bg-gray-700 text-white px-2 py-1 rounded text-sm">
+                <span className="absolute left-full ml-2 whitespace-nowrap bg-gray-800/70 text-white px-2 py-1 rounded text-sm italic">
                     {label}
                 </span>
             )}
