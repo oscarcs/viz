@@ -31,6 +31,8 @@ function validateGeoJson(geoJson: AllGeoJSON) {
         );
 }
 
+const EPSILON = 1e-9;
+
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
  * This graph is directed (both directions are created)
@@ -111,7 +113,7 @@ class Graph {
 
     /**
      * Add a new street to the graph.
-     * It will split the street at intersections with existing edges and add new edges accordingly.
+     * It will split the street and existing edges at intersections, and add new edges accordingly.
      * @param street LineString - The street to add
      */
     addStreet(street: LineString) {
@@ -123,34 +125,41 @@ class Graph {
             const start = street.coordinates[i];
             const end = street.coordinates[i + 1];
             
+            // Find all intersection points (excluding endpoints)
             const intersections = this.findAllIntersections(start, end);
             intersections.sort((a, b) => a.distance - b.distance);
-            
-            const points = [start];
-            intersections.forEach(intersection => {
-                points.push(intersection.point);
-            });
-            points.push(end);
-            
-            // Create edges between consecutive points
-            for (let j = 0; j < points.length - 1; j++) {
-                const fromNode = this.getNode(points[j]);
-                const toNode = this.getNode(points[j + 1]);
+
+            // Collect all split points: start, intersections, end
+            const splitPoints: number[][] = [start];
+            for (const inter of intersections) {
+                // Avoid duplicates (e.g., if intersection is at start/end)
+                if (!splitPoints.some(pt => this.pointsEqual(pt, inter.point, EPSILON))) {
+                    splitPoints.push(inter.point);
+                }
+            }
+            if (!splitPoints.some(pt => this.pointsEqual(pt, end, EPSILON))) {
+                splitPoints.push(end);
+            }
+
+            // Sort split points by distance from start
+            splitPoints.sort((a, b) => this.distance(start, a) - this.distance(start, b));
+
+            // Split existing edges at intersection points
+            for (const inter of intersections) {
+                const intersectionNode = this.getNode(inter.point);
+                this.splitEdgeAtIntersection(inter.edge, intersectionNode);
+            }
+
+            // Add edges between consecutive split points
+            for (let j = 0; j < splitPoints.length - 1; j++) {
+                const fromNode = this.getNode(splitPoints[j]);
+                const toNode = this.getNode(splitPoints[j + 1]);
                 
                 if (!this.edgeExists(fromNode, toNode)) {
                     this.addEdge(fromNode, toNode);
                 }
-                
-                // If this point is an intersection, split the intersected edge
-                if (j > 0 && j < points.length - 1) {
-                    const intersection = intersections[j - 1];
-                    this.splitEdgeAtIntersection(intersection.edge, this.getNode(points[j]));
-                }
             }
         }
-
-        console.log(this.edges, this.nodes);
-        console.log(this.edges.length / 2, Object.keys(this.nodes).length);
     }
 
     // Check if an edge already exists between two nodes
@@ -161,7 +170,6 @@ class Graph {
     // Find all intersections between a segment and existing edges
     private findAllIntersections(start: number[], end: number[]) {
         const intersections = [];
-        const EPSILON = 1e-9;
         
         for (const edge of this.edges) {
             // Skip if we're checking the same edge
@@ -196,7 +204,6 @@ class Graph {
         return intersections;
     }
 
-    // Compare two points for equality, with optional epsilon for floating point comparison
     private pointsEqual(p1: number[], p2: number[], epsilon = 0): boolean {
         if (epsilon === 0) {
             return p1[0] === p2[0] && p1[1] === p2[1];
@@ -340,6 +347,9 @@ class Graph {
      * @param {Node} to - Node which ends the Edge
      */
     addEdge(from: Node, to: Node) {
+        if (this.edgeExists(from, to) || this.edgeExists(to, from)) {
+            return;
+        }
         const edge = new Edge(from, to),
             symetricEdge = edge.getSymmetric();
 

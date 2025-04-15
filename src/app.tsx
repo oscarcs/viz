@@ -3,7 +3,7 @@ import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
 import { CompassWidget } from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
-import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
+import { Color, EditableGeoJsonLayer, LineString } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
@@ -25,32 +25,7 @@ function Root() {
     const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     
     React.useEffect(() => {
-        try {
-            setBlocksData({
-                type: 'FeatureCollection',
-                features: [
-                    {
-                        type: 'Feature',
-                        properties: { id: 1 },
-                        geometry: {
-                            type: 'Polygon',
-                            coordinates: [
-                                [
-                                    [0, 0],
-                                    [0.1, 0],
-                                    [0.1, 0.1],
-                                    [0, 0.1],
-                                    [0, 0]
-                                ]
-                            ]
-                        }
-                    }
-                ]
-            });
-        }
-        catch (error) {
-            console.error('Error processing GeoJSON data:', error);
-        }
+
     }, []);
 
     const layers = [
@@ -80,7 +55,7 @@ function Root() {
 
                     streetGraph.addStreet(updatedData.features[0].geometry);
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
-                    // setBlocksData(streetGraph.polygonize() as any);
+                    setBlocksData(streetGraph.polygonize() as any);
                 }
             }
         })
