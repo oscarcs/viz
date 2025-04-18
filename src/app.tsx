@@ -2,13 +2,14 @@ import React from 'react';
 import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
-import { Color, EditableGeoJsonLayer, LineString } from '@deck.gl-community/editable-layers';
+import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
+import { insetPolygon } from './ds/util';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -56,7 +57,10 @@ function Root() {
 
                     streetGraph.addStreet(updatedData.features[0].geometry);
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
-                    setBlocksData(Graph.polygonize(streetGraph.copy()) as any);
+
+                    const polygonization = Graph.polygonize(streetGraph.copy());
+                    const blocks = polygonization.features.map((feature: any) => insetPolygon(feature, .005));
+                    setBlocksData({ type: 'FeatureCollection', features: blocks as any });
                 }
             }
         })

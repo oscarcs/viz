@@ -577,7 +577,8 @@ class Graph {
     }
 
     /**
-     * Returns the polgonization of a graph - the set of polygons enclosed by the edges.
+     * Returns the polygonization of a graph - the set of polygons enclosed by the edges.
+     * Note that this operation is destructive on the graph - it will remove dangles and cut edges.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
      */
     static polygonize(graph: Graph): FeatureCollection<Polygon> {
