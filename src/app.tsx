@@ -56,7 +56,7 @@ function Root() {
 
                     streetGraph.addStreet(updatedData.features[0].geometry);
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
-                    setBlocksData(streetGraph.polygonize() as any);
+                    setBlocksData(Graph.polygonize(streetGraph.copy()) as any);
                 }
             }
         })

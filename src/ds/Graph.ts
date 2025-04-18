@@ -276,17 +276,12 @@ class Graph {
         return featureCollection(features);
     }
 
-    /**
-     * Returns the polgonization of this graph - the set of polygons enclosed by the edges.
-     * @returns {FeatureCollection<Polygon>} - The polygonized graph
-     */
-    polygonize(): FeatureCollection<Polygon> {
+    copy(): Graph {
         const graphCopy = new Graph();
         
-        // Copy all edges to the new graph
-        // We only need to process edges in one direction as addEdge creates both directions
         const processedEdges = new Set<string>();
         
+        // We only need to process edges in one direction as addEdge creates both directions
         this.edges.forEach(edge => {
             const edgeKey = `${edge.from.id}-${edge.to.id}`;
             const reverseEdgeKey = `${edge.to.id}-${edge.from.id}`;
@@ -304,25 +299,7 @@ class Graph {
             graphCopy.addEdge(fromNode, toNode);
         });
 
-        // Proceed with the polygonization on the copy
-        graphCopy.deleteDangles();
-        graphCopy.deleteCutEdges();
-
-        const holes: EdgeRing[] = [];
-        const shells: EdgeRing[] = [];
-
-        graphCopy.getEdgeRings()
-            .filter((ring) => ring.isValid())
-            .forEach((ring) => {
-                if (ring.isHole()) holes.push(ring);
-                else shells.push(ring);
-            });
-
-        holes.forEach((hole) => {
-            if (EdgeRing.findEdgeRingContaining(hole, shells)) shells.push(hole);
-        });
-
-        return featureCollection(shells.map((shell) => shell.toPolygon()));
+        return graphCopy;
     }
 
     /**
@@ -596,6 +573,38 @@ class Graph {
     removeEdge(edge: Edge) {
         this.edges = this.edges.filter((e) => !e.isEqual(edge));
         edge.deleteEdge();
+    }
+
+    /**
+     * Returns the polgonization of a graph - the set of polygons enclosed by the edges.
+     * @returns {FeatureCollection<Polygon>} - The polygonized graph
+     */
+    static polygonize(graph: Graph): FeatureCollection<Polygon> {
+        graph.deleteDangles();
+        graph.deleteCutEdges();
+
+        const holes: EdgeRing[] = [];
+        const shells: EdgeRing[] = [];
+
+        graph
+            .getEdgeRings()
+            .filter((edgeRing) => edgeRing.isValid())
+            .forEach((edgeRing) => {
+                if (edgeRing.isHole()) {
+                    holes.push(edgeRing);
+                }
+                else {
+                    shells.push(edgeRing);
+                }
+            });
+
+        holes.forEach((hole) => {
+            if (EdgeRing.findEdgeRingContaining(hole, shells)) {
+                shells.push(hole);
+            }
+        });
+
+        return featureCollection(shells.map((shell) => shell.toPolygon()));
     }
 }
 
