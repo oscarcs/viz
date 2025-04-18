@@ -31,7 +31,8 @@ function validateGeoJson(geoJson: AllGeoJSON) {
         );
 }
 
-const EPSILON = 1e-9;
+// TODO: Nonzero epsilon breaks polygonization. We will need to fix this eventually possibly by 'snapping' nodes somehow.
+const EPSILON = 0;
 
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
