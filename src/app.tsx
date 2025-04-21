@@ -9,12 +9,12 @@ import { GeoJsonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
-import { insetPolygon } from './ds/util';
+import { buffer } from '@turf/turf';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
     longitude: 0,
-    zoom: 10,
+    zoom: 17,
     bearing: 0,
     pitch: 0
 };
@@ -59,8 +59,10 @@ function Root() {
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
                     const polygonization = Graph.polygonize(streetGraph.copy());
-                    const blocks = polygonization.features.map((feature: any) => insetPolygon(feature, .005));
-                    setBlocksData({ type: 'FeatureCollection', features: blocks as any });
+                    const blocks = buffer(polygonization, -3, { units: 'meters' });
+                    if (blocks) {
+                        setBlocksData(blocks as any);
+                    }
                 }
             }
         })
