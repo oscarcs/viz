@@ -1,3 +1,4 @@
+import React from 'react';
 import {
     FlyToInterpolator,
     WebMercatorViewport,
@@ -11,6 +12,35 @@ import { CompassWidgetProps } from 'deck.gl';
 import { createRoot, Root } from 'react-dom/client';
 import { useWidget } from "@deck.gl/react";
 
+const CompassWidgetUI: React.FC<{
+    rz: number;
+    onReset: () => void;
+    className?: string;
+    style?: React.CSSProperties;
+}> = ({ rz, onReset, className, style }) => (
+    <div>
+        <button
+            type="button"
+            className={`pointer-events-auto cursor-pointer w-full border border-gray-300 rounded-md bg-gray-100/70 p-1 relative flex items-center justify-center ${className || ''}`}
+            style={style}
+            onClick={onReset}
+        >
+            <svg fill="none" width="30" height="30" viewBox="0 0 26 26">
+                <g transform={`rotate(${rz},13,13)`}>
+                    <path
+                        d="M10 13.0001L12.9999 5L15.9997 13.0001H10Z"
+                        fill="var(--icon-compass-north-color, #F05C44)"
+                    />
+                    <path
+                        d="M16.0002 12.9999L13.0004 21L10.0005 12.9999H16.0002Z"
+                        fill="var(--icon-compass-south-color, #C2C2CC)"
+                    />
+                </g>
+            </svg>
+        </button>
+    </div>
+);
+
 class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
     id = 'compass';
     props: CompassWidgetProps;
@@ -20,6 +50,7 @@ class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
     deck?: Deck<any>;
     element?: HTMLDivElement;
     root?: Root;
+    private _updateScheduled = false;
 
     constructor(props: CompassWidgetProps) {
         this.id = props.id ?? this.id;
@@ -90,44 +121,40 @@ class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
     }
 
     private update() {
-        const viewId = this.viewId || Object.values(this.viewports)[0]?.id || 'default-view';
-        const viewport = this.viewports[viewId];
-        const [rz] = this.getRotation(viewport);
-        const root = this.root;
-        if (!root) {
+        if (this._updateScheduled) {
             return;
         }
-        const ui = (
-            <div>
-                <button
-                    type="button"
-                    className="pointer-events-auto cursor-pointer w-full border border-gray-300 rounded-md bg-gray-100/70 p-1 relative flex items-center justify-center"
-                    onClick={() => {
-                        for (const viewport of Object.values(this.viewports)) {
-                            this.handleCompassReset(viewport);
+        this._updateScheduled = true;
+
+        requestAnimationFrame(() => {
+            this._updateScheduled = false;
+            const viewId = this.viewId || Object.values(this.viewports)[0]?.id || 'default-view';
+            const viewport = this.viewports[viewId];
+            const [rz] = this.getRotation(viewport);
+            const root = this.root;
+            if (!root) {
+                return;
+            }
+
+            root.render(
+                <CompassWidgetUI
+                    rz={rz}
+                    onReset={() => {
+                        for (const vp of Object.values(this.viewports)) {
+                            this.handleCompassReset(vp);
                         }
                     }}
-                >
-                    <svg fill="none" width="30" height="30" viewBox="0 0 26 26">
-                        <g transform={`rotate(${rz},13,13)`}>
-                            <path
-                                d="M10 13.0001L12.9999 5L15.9997 13.0001H10Z"
-                                fill="var(--icon-compass-north-color, #F05C44)"
-                            />
-                            <path
-                                d="M16.0002 12.9999L13.0004 21L10.0005 12.9999H16.0002Z"
-                                fill="var(--icon-compass-south-color, #C2C2CC)"
-                            />
-                        </g>
-                    </svg>
-                </button>
-            </div>
-        );
-        root.render(ui);
+                    className={this.props.className}
+                    style={this.props.style as React.CSSProperties}
+                />
+            );
+        });
     }
 
     onRemove() {
-        this.root?.unmount();
+        const root = this.root;
+        // defer unmount to avoid sync unmount during React render
+        setTimeout(() => root?.unmount());
         this.root = undefined;
         this.deck = undefined;
         this.element = undefined;
@@ -152,4 +179,4 @@ class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
 export const CustomCompassWidget = (props: CompassWidgetProps = {}) => {
     useWidget(CustomCompassWidgetClass, props);
     return null;
-  };
+};
