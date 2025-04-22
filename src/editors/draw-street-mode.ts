@@ -79,8 +79,6 @@ export class DrawStreetMode extends GeoJsonEditMode {
             return;
         }
 
-        console.log(clickSequence.length);
-
         // Create a LineString from the click sequence
         const newStreetGeometry: LineString = {
             type: 'LineString',
