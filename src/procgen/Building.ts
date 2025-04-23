@@ -1,4 +1,4 @@
-import { feature, bbox, lineString, along, featureCollection, point, voronoi, intersect, length } from "@turf/turf";
+import { feature, bbox, lineString, along, featureCollection, point, voronoi, intersect, length, area } from "@turf/turf";
 import { Polygon, Position } from "geojson";
 
 export type Building = {
@@ -24,7 +24,7 @@ function normalRandom(mean: number, stdDev: number): number {
  * @param maxSize 
  * @returns 
  */
-export function generateFloorplansInsidePolygon(polygon: Polygon): Polygon[] {
+export function generateLotsFromBlock(polygon: Polygon): Polygon[] {
     // 1) get bbox
     const [minX, minY, maxX, maxY] = bbox(polygon);
 
@@ -85,7 +85,15 @@ export function generateFloorplansInsidePolygon(polygon: Polygon): Polygon[] {
     return cells;
 }
 
-export function generateBuildingFromFloorplan(polygon: Polygon, minHeight: number, maxHeight: number): Building {
+export function generateFloorplanFromLot(polygon: Polygon): Polygon | null {
+    return polygon;
+}
+
+export function generateBuildingFromFloorplan(polygon: Polygon, minHeight: number, maxHeight: number): Building | null {
+    if (area(polygon) < 100) {
+        return null;
+    }
+    
     const height = Math.floor(Math.random() * (maxHeight - minHeight) + minHeight);
     return {
         polygon,

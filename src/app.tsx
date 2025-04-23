@@ -10,8 +10,7 @@ import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { buffer } from '@turf/turf';
-import { Building, generateBuildingFromFloorplan, generateFloorplansInsidePolygon } from './procgen/Building';
-import { Polygon } from 'geojson';
+import { Building, generateBuildingFromFloorplan, generateFloorplanFromLot, generateLotsFromBlock } from './procgen/Building';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -83,11 +82,12 @@ function Root() {
                         const buildings: Building[] = [];
 
                         for (const block of blocks.features) {
-                            const floorplans = generateFloorplansInsidePolygon(block.geometry as any);
-                            const b = floorplans
-                                .map(building => buffer(building, -Math.random() * 10, { units: 'meters' }))
-                                .filter(building => building !== undefined)
-                                .map(plan => generateBuildingFromFloorplan(plan.geometry as Polygon, 10, 120));
+                            const lots = generateLotsFromBlock(block.geometry as any);
+                            const b = lots
+                                .map(lot => generateFloorplanFromLot(lot))
+                                .filter(floorplan => floorplan !== null)
+                                .map(floorplan => generateBuildingFromFloorplan(floorplan, 10, 50))
+                                .filter(building => building !== null);
                             buildings.push(...b);
                         }
 
