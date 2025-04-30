@@ -9,8 +9,9 @@ import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
-import { buffer } from '@turf/turf';
+import { area, buffer, feature, featureCollection, multiPolygon } from '@turf/turf';
 import { Building, generateBuildingFromFloorplan, generateFloorplanFromLot, generateLotsFromBlock } from './procgen/Building';
+import { StraightSkeletonBuilder } from 'straight-skeleton-geojson';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -26,6 +27,7 @@ function Root() {
     // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
+    const [skeletonsData, setSkeletonsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [buildingData, setBuildingData] = React.useState<Building[]>([]);
 
     React.useEffect(() => {
@@ -33,6 +35,14 @@ function Root() {
     }, []);
 
     const layers = [
+        new GeoJsonLayer({
+            id: "skeletons",
+            data: skeletonsData as any,
+            filled: false,
+            stroked: true,
+            getFillColor: (_: any) => [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255],
+            pickable: true
+        }),
         new GeoJsonLayer({
             id: "blocks",
             data: blocksData as any,
@@ -61,7 +71,7 @@ function Root() {
             data: streetsData,
             mode: new DrawStreetMode(),
             filled: true,
-            getLineWidth: 5,
+            getLineWidth: 0.1,
             getFillColor: [200, 0, 80, 180],
             getLineColor: (_feature: any, _isSelected: any, _mode: any): Color => {
                 return [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255];
@@ -76,23 +86,41 @@ function Root() {
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
                     const polygonization = Graph.polygonize(streetGraph.copy());
-                    const blocks = buffer(polygonization, -3, { units: 'meters' });
-                    
+                    const blocks = polygonization;//buffer(polygonization, -3, { units: 'meters' });
+
                     if (blocks) {
-                        const buildings: Building[] = [];
+                        // hack: remove small polygons. we need to fix the tolerances of the polygonizer
+                        blocks.features = blocks.features.filter((block) => area(block) > 0.1);
+
+                        const skeletons = [];
+                        const newBlocks = [];
 
                         for (const block of blocks.features) {
-                            const lots = generateLotsFromBlock(block.geometry as any);
-                            const b = lots
-                                .map(lot => generateFloorplanFromLot(lot))
-                                .filter(floorplan => floorplan !== null)
-                                .map(floorplan => generateBuildingFromFloorplan(floorplan, 10, 50))
-                                .filter(building => building !== null);
-                            buildings.push(...b);
+                            const mp = multiPolygon([block.geometry.coordinates as any]).geometry;
+                            const skelly = StraightSkeletonBuilder.buildFromGeoJSON(mp as any);
+
+                            skeletons.push(feature(skelly.toMultiPolygon()));
+                            const offset = skelly.offset(0.0003);
+
+                            newBlocks.push(feature(offset));
                         }
 
-                        setBuildingData(buildings);
-                        setBlocksData(blocks as any);
+                        setSkeletonsData(featureCollection(skeletons) as any);
+                        setBlocksData(featureCollection(newBlocks) as any);
+
+                        // const buildings: Building[] = [];
+
+                        // for (const block of blocks.features) {
+                        //     const lots = generateLotsFromBlock(block.geometry as any);
+                        //     const b = lots
+                        //         .map(lot => generateFloorplanFromLot(lot))
+                        //         .filter(floorplan => floorplan !== null)
+                        //         .map(floorplan => generateBuildingFromFloorplan(floorplan, 10, 50))
+                        //         .filter(building => building !== null);
+                        //     buildings.push(...b);
+                        // }
+
+                        // setBuildingData(buildings);
                     }
                 }
             }

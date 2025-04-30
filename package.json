@@ -27,6 +27,7 @@
     "lucide-react": "^0.488.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "straight-skeleton-geojson": "github:oscarcs/straight-skeleton-geojson",
     "tailwindcss": "^4.1.4"
   }
 }
