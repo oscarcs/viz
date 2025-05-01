@@ -9,9 +9,10 @@ import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
-import { area, buffer, feature, featureCollection, multiPolygon } from '@turf/turf';
-import { Building, generateBuildingFromFloorplan, generateFloorplanFromLot, generateLotsFromBlock } from './procgen/Building';
+import { area, feature, featureCollection, multiPolygon } from '@turf/turf';
+import { Building } from './procgen/Building';
 import { StraightSkeletonBuilder } from 'straight-skeleton-geojson';
+import { multipolygonDifference } from './ds/util';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -99,13 +100,15 @@ function Root() {
                             const mp = multiPolygon([block.geometry.coordinates as any]).geometry;
                             const skelly = StraightSkeletonBuilder.buildFromGeoJSON(mp as any);
 
-                            skeletons.push(feature(skelly.toMultiPolygon()));
+                            const skellyPolygon = skelly.toMultiPolygon();
                             const offset = skelly.offset(0.0003);
+                            const partial = multipolygonDifference(skellyPolygon, offset);
 
-                            newBlocks.push(feature(offset));
+                            skeletons.push(feature(skellyPolygon));
+                            newBlocks.push(feature(partial));
                         }
 
-                        setSkeletonsData(featureCollection(skeletons) as any);
+                        // setSkeletonsData(featureCollection(skeletons) as any);
                         setBlocksData(featureCollection(newBlocks) as any);
 
                         // const buildings: Building[] = [];

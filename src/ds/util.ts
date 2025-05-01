@@ -1,5 +1,5 @@
-import { Feature, Polygon } from "geojson";
-import { booleanPointInPolygon, point } from "@turf/turf";
+import { Feature, MultiPolygon, Polygon } from "geojson";
+import { booleanPointInPolygon, difference, point, polygons } from "@turf/turf";
 
 // https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/Math/sign#Polyfill
 function mathSign(x: number) {
@@ -84,4 +84,40 @@ export function envelopeContains(
  */
 export function coordinatesEqual(coord1: number[], coord2: number[]) {
     return coord1[0] === coord2[0] && coord1[1] === coord2[1];
+}
+
+
+/**
+ * Loop through two different multipolygons and use turf.difference to return the difference between them.
+ * @param poly1 
+ * @param poly2 
+ */
+export function multipolygonDifference(multiPoly1: MultiPolygon, multiPoly2: MultiPolygon): MultiPolygon {
+    const output: MultiPolygon = {
+        type: "MultiPolygon",
+        coordinates: []
+    };
+
+    if (multiPoly2.coordinates.length === 0) {
+        return multiPoly1;
+    }
+
+    for (let i = 0; i < multiPoly1.coordinates.length; i++) {
+        for (let j = 0; j < multiPoly2.coordinates.length; j++) {
+
+            const p = polygons([multiPoly1.coordinates[i], multiPoly2.coordinates[j]]);
+            const diff = difference(p);
+
+            if (diff) {
+                if (diff.geometry.type === "Polygon") {
+                    output.coordinates.push(diff.geometry.coordinates);
+                }
+                else if (diff.geometry.type === "MultiPolygon") {
+                    output.coordinates.push(...diff.geometry.coordinates);
+                }
+            }
+        }
+    }
+
+    return output;
 }
