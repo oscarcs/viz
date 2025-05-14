@@ -9,10 +9,9 @@ import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import Graph from './ds/Graph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
-import { area, feature, featureCollection, multiPolygon } from '@turf/turf';
-import { Building } from './procgen/Building';
-import { StraightSkeletonBuilder } from 'straight-skeleton-geojson';
-import { multipolygonDifference } from './ds/util';
+import { area, feature } from '@turf/turf';
+import { Polygon } from 'geojson';
+import { Building, generateLotsFromBlock } from './procgen/Building';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -93,33 +92,18 @@ function Root() {
                         // hack: remove small polygons. we need to fix the tolerances of the polygonizer
                         blocks.features = blocks.features.filter((block) => area(block) > 0.1);
 
-                        const skeletons = [];
-                        const newBlocks = [];
-
-                        for (const block of blocks.features) {
-                            const mp = multiPolygon([block.geometry.coordinates as any]).geometry;
-                            const skelly = StraightSkeletonBuilder.buildFromGeoJSON(mp as any);
-
-                            const skellyPolygon = skelly.toMultiPolygon();
-                            const offset = skelly.offset(0.0003);
-                            const partial = multipolygonDifference(skellyPolygon, offset);
-
-                            skeletons.push(feature(skellyPolygon));
-                            newBlocks.push(feature(partial));
-                        }
-
-                        // setSkeletonsData(featureCollection(skeletons) as any);
-                        setBlocksData(featureCollection(newBlocks) as any);
+                        const newBlocks = blocks.features.map(b => feature(generateLotsFromBlock(b.geometry as Polygon)))
+                        setBlocksData(newBlocks as any);
 
                         // const buildings: Building[] = [];
 
                         // for (const block of blocks.features) {
                         //     const lots = generateLotsFromBlock(block.geometry as any);
                         //     const b = lots
-                        //         .map(lot => generateFloorplanFromLot(lot))
-                        //         .filter(floorplan => floorplan !== null)
-                        //         .map(floorplan => generateBuildingFromFloorplan(floorplan, 10, 50))
-                        //         .filter(building => building !== null);
+                        //         .map((lot: Polygon) => generateFloorplanFromLot(lot))
+                        //         .filter((floorplan: Polygon | null) => floorplan !== null)
+                        //         .map((floorplan: Polygon) => generateBuildingFromFloorplan(floorplan, 10, 50))
+                        //         .filter((building: Building | null) => building !== null) as Building[];
                         //     buildings.push(...b);
                         // }
 
