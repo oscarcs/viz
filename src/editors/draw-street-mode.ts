@@ -11,20 +11,71 @@ import {
     Tooltip
 } from "@deck.gl-community/editable-layers";
 import { distance } from '@turf/turf';
+import Graph from '../ds/Graph';
 
 export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
     position: Position = null!;
     elems: Position[] = [];
+    
+    // Snapping properties
+    private shiftPressed = false;
+    private snapThreshold = 0.0002; // Distance threshold for snapping in map units
+    private snapTarget: { point: Position; type: 'node' | 'edge' } | null = null;
+    private graph: Graph | null = null;
+
+    constructor(graph?: Graph) {
+        super();
+        this.graph = graph || null;
+        
+        // Bind keyboard event handlers
+        this.handleKeyDownGlobal = this.handleKeyDownGlobal.bind(this);
+        this.handleKeyUpGlobal = this.handleKeyUpGlobal.bind(this);
+        
+        // Add keyboard event listeners
+        if (typeof window !== 'undefined') {
+            window.addEventListener('keydown', this.handleKeyDownGlobal);
+            window.addEventListener('keyup', this.handleKeyUpGlobal);
+        }
+    }
+
+    cleanup() {
+        // Remove keyboard event listeners
+        if (typeof window !== 'undefined') {
+            window.removeEventListener('keydown', this.handleKeyDownGlobal);
+            window.removeEventListener('keyup', this.handleKeyUpGlobal);
+        }
+    }
+
+    setGraph(graph: Graph) {
+        this.graph = graph;
+    }
+
+    private handleKeyDownGlobal(event: KeyboardEvent) {
+        if (event.key === 'Shift') {
+            this.shiftPressed = true;
+        }
+    }
+
+    private handleKeyUpGlobal(event: KeyboardEvent) {
+        if (event.key === 'Shift') {
+            this.shiftPressed = false;
+        }
+    }
 
     handleClick(event: ClickEvent, props: ModeProps<FeatureCollection>) {
         const { picks } = event;
         const clickedEditHandle = getPickedEditHandle(picks);
 
         let positionAdded = false;
+        let snappedPosition = event.mapCoords;
+        
         if (!clickedEditHandle) {
+            // Get the snapped position if snapping is enabled
+            snappedPosition = this.graph ? this.getSnappedPosition(event.mapCoords, this.graph) : event.mapCoords;
+            
             // Don't add another point right next to an existing one
-            this.addClickSequence(event);
+            this.addClickSequence({ ...event, mapCoords: snappedPosition });
             positionAdded = true;
         }
         const clickSequence = this.getClickSequence();
@@ -43,12 +94,12 @@ export class DrawStreetMode extends GeoJsonEditMode {
             this.handleNewStreet(props, clickSequence);
         }
         else if (positionAdded) {
-            // new tentative point
+            // new tentative point - use the same snapped position we calculated above
             props.onEdit({
                 updatedData: props.data,
                 editType: 'addTentativePosition',
                 editContext: {
-                    position: event.mapCoords
+                    position: snappedPosition
                 }
             });
         }
@@ -110,6 +161,12 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
         let tentativeFeature;
         if (clickSequence.length > 0) {
+            // Use snapped position for the tentative line if snapping is active
+            let finalCoords = lastCoords;
+            if (lastPointerMoveEvent && this.graph && this.snapTarget && !this.shiftPressed) {
+                finalCoords = [this.snapTarget.point];
+            }
+            
             tentativeFeature = {
                 type: 'Feature',
                 properties: {
@@ -117,7 +174,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
                 },
                 geometry: {
                     type: 'LineString',
-                    coordinates: [...clickSequence, ...lastCoords]
+                    coordinates: [...clickSequence, ...finalCoords]
                 }
             };
         }
@@ -144,7 +201,12 @@ export class DrawStreetMode extends GeoJsonEditMode {
         return guides;
     }
 
-    handlePointerMove(_: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
+    handlePointerMove(event: PointerMoveEvent, props: ModeProps<FeatureCollection>) {
+        // Update snap target for visual feedback
+        if (this.graph) {
+            this.snapTarget = this.findSnapTarget(event.mapCoords, this.graph);
+        }
+        
         props.onUpdateCursor('cell');
     }
 
@@ -225,6 +287,55 @@ export class DrawStreetMode extends GeoJsonEditMode {
             }
             return cachedResult;
         };
+    }
+
+    /**
+     * Find snap targets near the given position
+     * @param position - The position to check for snap targets
+     * @param graph - The street graph to search in
+     * @returns Snap target information or null
+     */
+    private findSnapTarget(position: Position, graph: Graph): { point: Position; type: 'node' | 'edge' } | null {
+        if (!graph) return null;
+
+        // First check for nearby nodes (endpoints have higher priority)
+        const nearestNode = graph.findNearestNode(position, this.snapThreshold);
+        if (nearestNode) {
+            return {
+                point: nearestNode.node.coordinates as Position,
+                type: 'node'
+            };
+        }
+
+        // Then check for nearby edges
+        const nearestEdgePoint = graph.findNearestPointOnEdge(position, this.snapThreshold);
+        if (nearestEdgePoint) {
+            return {
+                point: nearestEdgePoint.point as Position,
+                type: 'edge'
+            };
+        }
+
+        return null;
+    }
+
+    /**
+     * Get the effective click position, accounting for snapping
+     * @param originalPosition - The original click position
+     * @param graph - The street graph to snap to
+     * @returns The final position to use (snapped or original)
+     */
+    private getSnappedPosition(originalPosition: Position, graph: Graph): Position {
+        // Don't snap if Shift is held down
+        if (this.shiftPressed) {
+            this.snapTarget = null;
+            return originalPosition;
+        }
+
+        const snapTarget = this.findSnapTarget(originalPosition, graph);
+        this.snapTarget = snapTarget;
+        
+        return snapTarget ? snapTarget.point : originalPosition;
     }
 }
 

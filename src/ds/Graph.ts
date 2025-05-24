@@ -31,8 +31,9 @@ function validateGeoJson(geoJson: AllGeoJSON) {
         );
 }
 
-// TODO: Nonzero epsilon breaks polygonization. We will need to fix this eventually possibly by 'snapping' nodes somehow.
-const EPSILON = 0;
+// Epsilon value for floating-point coordinate precision handling
+// Small epsilon helps handle snapping precision issues while maintaining polygonization compatibility
+const EPSILON = 1e-10;
 
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
@@ -186,10 +187,9 @@ class Graph {
             );
             
             if (intersection) {
-                // Skip if intersection is at an endpoint (within epsilon)
-                if (this.pointsEqual(intersection, start, EPSILON) || 
-                    this.pointsEqual(intersection, end, EPSILON) ||
-                    this.pointsEqual(intersection, edge.from.coordinates, EPSILON) || 
+                // Only skip if intersection is at an endpoint of the EXISTING edge
+                // (We want to split existing edges even if intersection is at endpoints of the new line)
+                if (this.pointsEqual(intersection, edge.from.coordinates, EPSILON) || 
                     this.pointsEqual(intersection, edge.to.coordinates, EPSILON)) {
                     continue;
                 }
@@ -305,15 +305,23 @@ class Graph {
 
     /**
      * Creates or get a Node.
+     * If coordinates are very close to an existing node (within epsilon), returns the existing node.
      *
      * @param {number[]} coordinates - Coordinates of the node
      * @returns {Node} - The created or stored node
      */
     getNode(coordinates: number[]) {
-        const id = Node.buildId(coordinates);
-        let node = this.nodes[id];
-        if (!node) node = this.nodes[id] = new Node(coordinates);
+        // First check for nearby nodes within epsilon
+        for (const nodeId in this.nodes) {
+            const existingNode = this.nodes[nodeId];
+            if (this.pointsEqual(coordinates, existingNode.coordinates, EPSILON)) {
+                return existingNode;
+            }
+        }
 
+        // No nearby node found, create a new one
+        const id = Node.buildId(coordinates);
+        const node = this.nodes[id] = new Node(coordinates);
         return node;
     }
 
@@ -607,6 +615,90 @@ class Graph {
         });
 
         return featureCollection(shells.map((shell) => shell.toPolygon()));
+    }
+
+    /**
+     * Find the nearest node within a given distance threshold
+     * @param point - The point to search from
+     * @param threshold - Maximum distance to consider
+     * @returns The nearest node and distance, or null if none found
+     */
+    findNearestNode(point: number[], threshold: number): { node: Node; distance: number } | null {
+        let nearestNode: Node | null = null;
+        let minDistance = threshold;
+
+        for (const nodeId in this.nodes) {
+            const node = this.nodes[nodeId];
+            const dist = this.distance(point, node.coordinates);
+            if (dist < minDistance) {
+                nearestNode = node;
+                minDistance = dist;
+            }
+        }
+
+        return nearestNode ? { node: nearestNode, distance: minDistance } : null;
+    }
+
+    /**
+     * Find the nearest point on any edge within a given distance threshold
+     * @param point - The point to search from
+     * @param threshold - Maximum distance to consider
+     * @returns The nearest point on an edge and distance, or null if none found
+     */
+    findNearestPointOnEdge(point: number[], threshold: number): { point: number[]; edge: Edge; distance: number } | null {
+        let nearestPoint: number[] | null = null;
+        let nearestEdge: Edge | null = null;
+        let minDistance = threshold;
+
+        // Check each unique edge (avoid duplicates from symmetric edges)
+        const processedEdges = new Set<string>();
+
+        for (const edge of this.edges) {
+            const edgeKey = `${edge.from.id}-${edge.to.id}`;
+            const reverseEdgeKey = `${edge.to.id}-${edge.from.id}`;
+            
+            if (processedEdges.has(edgeKey) || processedEdges.has(reverseEdgeKey)) {
+                continue;
+            }
+            processedEdges.add(edgeKey);
+
+            const closestPoint = this.pointToLineSegment(point, edge.from.coordinates, edge.to.coordinates);
+            const dist = this.distance(point, closestPoint);
+            
+            if (dist < minDistance) {
+                nearestPoint = closestPoint;
+                nearestEdge = edge;
+                minDistance = dist;
+            }
+        }
+
+        return nearestPoint && nearestEdge ? { point: nearestPoint, edge: nearestEdge, distance: minDistance } : null;
+    }
+
+    /**
+     * Find the closest point on a line segment to a given point
+     * @param point - The point to project
+     * @lineStart - Start of the line segment
+     * @lineEnd - End of the line segment
+     * @returns The closest point on the line segment
+     */
+    private pointToLineSegment(point: number[], lineStart: number[], lineEnd: number[]): number[] {
+        const dx = lineEnd[0] - lineStart[0];
+        const dy = lineEnd[1] - lineStart[1];
+        
+        if (dx === 0 && dy === 0) {
+            // Line segment is actually a point
+            return lineStart;
+        }
+        
+        const t = Math.max(0, Math.min(1, 
+            ((point[0] - lineStart[0]) * dx + (point[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
+        ));
+        
+        return [
+            lineStart[0] + t * dx,
+            lineStart[1] + t * dy
+        ];
     }
 }
 

@@ -23,6 +23,7 @@ const INITIAL_VIEW_STATE = {
 
 function Root() {
     const [streetGraph] = React.useState<Graph>(new Graph());
+    const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
     
     // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
@@ -31,8 +32,15 @@ function Root() {
     const [buildingData, setBuildingData] = React.useState<Building[]>([]);
 
     React.useEffect(() => {
+        // Update the draw mode with the current graph whenever it changes
+        drawMode.setGraph(streetGraph);
+    }, [streetGraph, drawMode]);
 
-    }, []);
+    React.useEffect(() => {
+        return () => {
+            drawMode.cleanup();
+        };
+    }, [drawMode]);
 
     const layers = [
         new GeoJsonLayer({
@@ -69,7 +77,7 @@ function Root() {
         new EditableGeoJsonLayer({
             id: "streets",
             data: streetsData,
-            mode: new DrawStreetMode(),
+            mode: drawMode,
             filled: true,
             getLineWidth: 0.1,
             getFillColor: [200, 0, 80, 180],
