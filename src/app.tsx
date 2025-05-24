@@ -82,7 +82,7 @@ function Root() {
             onEdit: ({updatedData, editType}) => {
                 if (editType !== 'addTentativePosition') {
 
-                    streetGraph.addStreet(updatedData.features[0].geometry);
+                    streetGraph.addLineString(updatedData.features[0].geometry);
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
                     const polygonization = Graph.polygonize(streetGraph.copy());

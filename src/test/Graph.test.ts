@@ -21,8 +21,8 @@ test('Intersecting two streets should calculate the correct intersection point',
         ]
     };
 
-    graph.addStreet(street1);
-    graph.addStreet(street2);
+    graph.addLineString(street1);
+    graph.addLineString(street2);
 
     const nodes = graph.getNodes();
     const edges = graph.getEdges();
@@ -59,7 +59,7 @@ test('Intersecting two streets should calculate the correct intersection point',
     expect(hasEdge('0.5,0.5', '1,0')).toBe(true);
 });
 
-test('Adding a grid of streets should create the correct number of nodes and edges', () => {
+test('Adding a grid of line strings should create the correct number of nodes and edges', () => {
     const graph = new Graph();
     
     const street1: LineString = {
@@ -94,10 +94,10 @@ test('Adding a grid of streets should create the correct number of nodes and edg
         ]
     };
 
-    graph.addStreet(street1);
-    graph.addStreet(street2);
-    graph.addStreet(street3);
-    graph.addStreet(street4);
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+    graph.addLineString(street3);
+    graph.addLineString(street4);
     
     const nodes = graph.getNodes();
     const edges = graph.getEdges();

@@ -113,11 +113,11 @@ class Graph {
     }
 
     /**
-     * Add a new street to the graph.
-     * It will split the street and existing edges at intersections, and add new edges accordingly.
-     * @param street LineString - The street to add
+     * Add a new line string to the graph.
+     * It will split the line string and existing edges at intersections, and add new edges accordingly.
+     * @param street LineString - The line string to add
      */
-    addStreet(street: LineString) {
+    addLineString(street: LineString) {
         if (!street || !street.coordinates || street.coordinates.length < 2) {
             return;
         }
@@ -319,7 +319,7 @@ class Graph {
 
     /**
      * Adds an Edge.
-     * Edges are added symetrically, i.e. we add edge A->B and B->A.
+     * Edges are added symmetrically, i.e. we add edge A->B and B->A.
      *
      * @param {Node} from - Node which starts the Edge
      * @param {Node} to - Node which ends the Edge
