@@ -23,6 +23,9 @@ export class DrawStreetMode extends GeoJsonEditMode {
     private snapThreshold = 0.0002; // Distance threshold for snapping in map units
     private snapTarget: { point: Position; type: 'node' | 'edge' } | null = null;
     private graph: Graph | null = null;
+    
+    // Track snap-to-edge/snap-to-vertex state for each point in the current line string
+    private pointSnappingStates: boolean[] = [];
 
     constructor(graph?: Graph) {
         super();
@@ -51,6 +54,11 @@ export class DrawStreetMode extends GeoJsonEditMode {
         this.graph = graph;
     }
 
+    resetClickSequence() {
+        super.resetClickSequence();
+        this.pointSnappingStates = [];
+    }
+
     private handleKeyDownGlobal(event: KeyboardEvent) {
         if (event.key === 'Shift') {
             this.shiftPressed = true;
@@ -69,13 +77,21 @@ export class DrawStreetMode extends GeoJsonEditMode {
 
         let positionAdded = false;
         let snappedPosition = event.mapCoords;
+        let wasSnappingEnabled = false;
         
         if (!clickedEditHandle) {
+            // Record whether snapping was enabled for this point
+            wasSnappingEnabled = !this.shiftPressed;
+            
             // Get the snapped position if snapping is enabled
             snappedPosition = this.graph ? this.getSnappedPosition(event.mapCoords, this.graph) : event.mapCoords;
             
             // Don't add another point right next to an existing one
             this.addClickSequence({ ...event, mapCoords: snappedPosition });
+            
+            // Track the snapping state for this point
+            this.pointSnappingStates.push(wasSnappingEnabled);
+            
             positionAdded = true;
         }
         const clickSequence = this.getClickSequence();
@@ -337,5 +353,12 @@ export class DrawStreetMode extends GeoJsonEditMode {
         
         return snapTarget ? snapTarget.point : originalPosition;
     }
-}
 
+    /**
+     * Get the per-point snapping states for the current line string
+     * @returns Array of boolean values indicating snapping state for each point
+     */
+    public getPointSnappingStates(): boolean[] {
+        return [...this.pointSnappingStates];
+    }
+}

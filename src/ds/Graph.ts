@@ -35,6 +35,10 @@ function validateGeoJson(geoJson: AllGeoJSON) {
 // Small epsilon helps handle snapping precision issues while maintaining polygonization compatibility
 const EPSILON = 1e-10;
 
+// Larger tolerance for snapping endpoints to nearby edges
+// This should match the snapThreshold in DrawStreetMode (0.0002)
+const SNAP_TOLERANCE = 0.0002;
+
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
  * This graph is directed (both directions are created)
@@ -117,15 +121,35 @@ class Graph {
      * Add a new line string to the graph.
      * It will split the line string and existing edges at intersections, and add new edges accordingly.
      * @param street LineString - The line string to add
+     * @param options - Options for adding the line string
+     * @param options.pointSnapping - Per-point snapping states
      */
-    addLineString(street: LineString) {
+    addLineString(street: LineString, options: { pointSnapping?: boolean[] } = {}) {
         if (!street || !street.coordinates || street.coordinates.length < 2) {
             return;
         }
 
+        const { pointSnapping } = options;
+
         for (let i = 0; i < street.coordinates.length - 1; i++) {
-            const start = street.coordinates[i];
-            const end = street.coordinates[i + 1];
+            let start = street.coordinates[i];
+            let end = street.coordinates[i + 1];
+            
+            let snapStart = false;
+            let snapEnd = false;
+            
+            if (pointSnapping && pointSnapping.length === street.coordinates.length) {
+                snapStart = pointSnapping[i];
+                snapEnd = pointSnapping[i + 1];
+            }
+            
+            // Snap endpoints to nearby edges if they're close enough and snapping is enabled for that point
+            if (snapStart) {
+                start = this.snapToNearbyEdge(start);
+            }
+            if (snapEnd) {
+                end = this.snapToNearbyEdge(end);
+            }
             
             // Find all intersection points (excluding endpoints)
             const intersections = this.findAllIntersections(start, end);
@@ -162,6 +186,25 @@ class Graph {
                 }
             }
         }
+    }
+
+    /**
+     * Snap a point to a nearby edge if it's within the snap tolerance
+     * @param point - The point to potentially snap
+     * @returns The snapped point or the original point if no nearby edge
+     */
+    private snapToNearbyEdge(point: number[]): number[] {
+        const nearestPointOnEdge = this.findNearestPointOnEdge(point, SNAP_TOLERANCE);
+        if (nearestPointOnEdge) {
+            // Only snap if the nearest point is not at an existing vertex (to avoid unwanted snapping to vertices)
+            const isAtVertex = this.pointsEqual(nearestPointOnEdge.point, nearestPointOnEdge.edge.from.coordinates, EPSILON) ||
+                this.pointsEqual(nearestPointOnEdge.point, nearestPointOnEdge.edge.to.coordinates, EPSILON);
+            
+            if (!isAtVertex) {
+                return nearestPointOnEdge.point;
+            }
+        }
+        return point;
     }
 
     // Check if an edge already exists between two nodes
@@ -239,16 +282,17 @@ class Graph {
 
         const denominator = ((y4 - y3) * (x2 - x1)) - ((x4 - x3) * (y2 - y1));
         
-        // Lines are parallel or coincident
-        if (Math.abs(denominator) < 1e-10) {
+        // Lines are parallel or coincident - use a more lenient tolerance
+        if (Math.abs(denominator) < 1e-15) {
             return null;
         }
         
         const ua = (((x4 - x3) * (y1 - y3)) - ((y4 - y3) * (x1 - x3))) / denominator;
         const ub = (((x2 - x1) * (y1 - y3)) - ((y2 - y1) * (x1 - x3))) / denominator;
         
-        // Check if intersection is within both line segments
-        if (ua < 0 || ua > 1 || ub < 0 || ub > 1) {
+        // Check if intersection is within both line segments - use a small tolerance for floating point errors
+        const tolerance = 1e-10;
+        if (ua < -tolerance || ua > 1 + tolerance || ub < -tolerance || ub > 1 + tolerance) {
             return null;
         }
         
