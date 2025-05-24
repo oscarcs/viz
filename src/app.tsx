@@ -56,7 +56,7 @@ function Root() {
             data: blocksData as any,
             filled: true,
             stroked: false,
-            getFillColor: (_: any) => [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255],
+            getFillColor: (_: any) => [200, 200, 200, 255],
             pickable: true
         }),
         new PolygonLayer<Building>({
@@ -79,10 +79,10 @@ function Root() {
             data: streetsData,
             mode: drawMode,
             filled: true,
-            getLineWidth: 0.1,
+            getLineWidth: 3,
             getFillColor: [200, 0, 80, 180],
-            getLineColor: (_feature: any, _isSelected: any, _mode: any): Color => {
-                return [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255];
+            getLineColor: (feature: any, _isSelected: any, _mode: any): Color => {
+                return feature.properties?.color || [255, 0, 0, 255];
             },
             pickable: true,
             selectedFeatureIndexes: [],
@@ -94,6 +94,8 @@ function Root() {
                         pointSnapping: drawMode.getPointSnappingStates()
                     });
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
+
+                    console.log(`Logical streets: ${streetGraph.getLogicalStreets().length}`);
 
                     const polygonization = Graph.polygonize(streetGraph.copy());
                     const blocks = polygonization;//buffer(polygonization, -3, { units: 'meters' });

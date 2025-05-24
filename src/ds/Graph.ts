@@ -1,6 +1,7 @@
 import { Node } from "./Node";
 import { Edge } from "./Edge";
 import { EdgeRing } from "./EdgeRing";
+import { LogicalStreet } from "./LogicalStreet";
 import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection } from "@turf/turf";
 import {
     FeatureCollection,
@@ -46,6 +47,8 @@ const SNAP_TOLERANCE = 0.0002;
 class Graph {
     private nodes: { [id: string]: Node };
     private edges: Edge[];
+    private logicalStreets: Map<string, LogicalStreet>;
+    private streetIdCounter: number;
 
     /**
      * Creates a graph from a GeoJSON.
@@ -130,6 +133,7 @@ class Graph {
         }
 
         const { pointSnapping } = options;
+        const newEdges: Edge[] = [];
 
         for (let i = 0; i < street.coordinates.length - 1; i++) {
             let start = street.coordinates[i];
@@ -182,10 +186,16 @@ class Graph {
                 const toNode = this.getNode(splitPoints[j + 1]);
                 
                 if (!this.edgeExists(fromNode, toNode)) {
-                    this.addEdge(fromNode, toNode);
+                    const newEdge = this.addEdge(fromNode, toNode);
+                    if (newEdge) {
+                        newEdges.push(newEdge);
+                    }
                 }
             }
         }
+        
+        // Assign new edges to logical streets
+        this.assignEdgesToLogicalStreets(newEdges);
     }
 
     /**
@@ -308,16 +318,74 @@ class Graph {
         const dy = point2[1] - point1[1];
         return Math.sqrt(dx * dx + dy * dy);
     }
+    
+    /**
+     * Get all logical streets in the graph
+     */
+    getLogicalStreets(): LogicalStreet[] {
+        return Array.from(this.logicalStreets.values());
+    }
+    
+    /**
+     * Find the logical street that contains a given edge
+     */
+    findLogicalStreetForEdge(edge: Edge): LogicalStreet | null {
+        for (const street of this.logicalStreets.values()) {
+            if (street.hasEdge(edge)) {
+                return street;
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * Create a new logical street
+     */
+    private createLogicalStreet(): LogicalStreet {
+        const streetId = `street_${this.streetIdCounter++}`;
+        const street = new LogicalStreet(streetId);
+        this.logicalStreets.set(streetId, street);
+        return street;
+    }
+    
+    /**
+     * Assign edges to logical streets based on connectivity and deflection angles
+     */
+    private assignEdgesToLogicalStreets(newEdges: Edge[]) {
+
+    }
 
     getStreetFeatureCollection(): FeatureCollection<LineString> {
-        const features: Feature<LineString>[] = this.edges.map((edge) => ({
-            type: "Feature",
-            properties: {},
-            geometry: {
-                type: "LineString",
-                coordinates: [edge.from.coordinates, edge.to.coordinates],
-            },
-        }));
+        const processedEdges = new Set<string>();
+        const features: Feature<LineString>[] = [];
+
+        // Create a feature for each unique edge with logical street color
+        this.edges.forEach(edge => {
+            const edgeId = `${edge.from.id}-${edge.to.id}`;
+            const reverseEdgeId = `${edge.to.id}-${edge.from.id}`;
+            
+            // Only process one direction of each edge
+            if (!processedEdges.has(edgeId) && !processedEdges.has(reverseEdgeId)) {
+                processedEdges.add(edgeId);
+                processedEdges.add(reverseEdgeId);
+                
+                // Find the logical street for this edge
+                const logicalStreet = this.findLogicalStreetForEdge(edge);
+                
+                features.push({
+                    type: "Feature",
+                    properties: {
+                        logicalStreetId: logicalStreet?.id || null,
+                        color: logicalStreet?.color || [255, 0, 0, 255]
+                    },
+                    geometry: {
+                        type: "LineString",
+                        coordinates: [edge.from.coordinates, edge.to.coordinates],
+                    },
+                });
+            }
+        });
+
         return featureCollection(features);
     }
 
@@ -376,15 +444,16 @@ class Graph {
      * @param {Node} from - Node which starts the Edge
      * @param {Node} to - Node which ends the Edge
      */
-    addEdge(from: Node, to: Node) {
+    addEdge(from: Node, to: Node): Edge | undefined {
         if (this.edgeExists(from, to) || this.edgeExists(to, from)) {
-            return;
+            return undefined;
         }
         const edge = new Edge(from, to),
             symetricEdge = edge.getSymmetric();
 
         this.edges.push(edge);
         this.edges.push(symetricEdge);
+        return edge;
     }
 
     constructor() {
@@ -392,6 +461,10 @@ class Graph {
 
         // The key is the `id` of the Node (ie: coordinates.join(','))
         this.nodes = {};
+        
+        // Logical streets management
+        this.logicalStreets = new Map();
+        this.streetIdCounter = 0;
     }
 
     /**
