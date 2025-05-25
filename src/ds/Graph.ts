@@ -195,7 +195,7 @@ class Graph {
         }
         
         // Assign new edges to logical streets
-        this.assignEdgesToLogicalStreets(newEdges);
+        this.assignNewEdgesToLogicalStreets(newEdges);
     }
 
     /**
@@ -277,11 +277,20 @@ class Graph {
             return;
         }
         
+        // Find the logical street that contains this edge before removing it
+        const logicalStreet = this.findLogicalStreetForEdge(edge);
+        
         this.removeEdge(edge);
         this.removeEdge(edge.symmetric!);
         
-        this.addEdge(fromNode, intersectionNode);
-        this.addEdge(intersectionNode, toNode);
+        const newEdge1 = this.addEdge(fromNode, intersectionNode);
+        const newEdge2 = this.addEdge(intersectionNode, toNode);
+        
+        // If the original edge was part of a logical street, add the new edges to the same street
+        if (logicalStreet && newEdge1 && newEdge2) {
+            logicalStreet.addEdge(newEdge1);
+            logicalStreet.addEdge(newEdge2);
+        }
     }
 
     private lineIntersection(line1Start: number[], line1End: number[], line2Start: number[], line2End: number[]): number[] | null {
@@ -347,12 +356,240 @@ class Graph {
         this.logicalStreets.set(streetId, street);
         return street;
     }
-    
+
     /**
      * Assign edges to logical streets based on connectivity and deflection angles
      */
-    private assignEdgesToLogicalStreets(newEdges: Edge[]) {
+    private assignNewEdgesToLogicalStreets(newEdges: Edge[]) {
+        // Process edges in a way that avoids processing symmetric pairs multiple times
+        const processedEdges = new Set<string>();
+        
+        for (const edge of newEdges) {
+            const edgeKey = `${edge.from.id}-${edge.to.id}`;
+            const reverseEdgeKey = `${edge.to.id}-${edge.from.id}`;
+            
+            // Skip if we've already processed this edge or its symmetric
+            if (processedEdges.has(edgeKey) || processedEdges.has(reverseEdgeKey)) {
+                continue;
+            }
+            
+            processedEdges.add(edgeKey);
+            processedEdges.add(reverseEdgeKey);
+            
+            this.assignEdgeToLogicalStreet(edge);
+        }
+    }
 
+    /**
+     * Assign a single edge to an appropriate logical street
+     */
+    private assignEdgeToLogicalStreet(edge: Edge) {
+        // Check if this edge is already assigned to a logical street
+        if (this.findLogicalStreetForEdge(edge)) {
+            return;
+        }
+
+        // Try to find an existing logical street to continue from either end
+        const fromContinuation = this.findLogicalStreetContinuation(edge, edge.from, true);
+        const toContinuation = this.findLogicalStreetContinuation(edge, edge.to, false);
+
+        if (fromContinuation && toContinuation && fromContinuation.street === toContinuation.street) {
+            // Edge connects two parts of the same logical street - add it
+            fromContinuation.street.addEdge(edge);
+        }
+        else if (fromContinuation && !toContinuation) {
+            // Continue from the 'from' end
+            fromContinuation.street.addEdge(edge);
+        }
+        else if (!fromContinuation && toContinuation) {
+            // Continue from the 'to' end
+            toContinuation.street.addEdge(edge);
+        }
+        else if (fromContinuation && toContinuation && fromContinuation.street !== toContinuation.street) {
+            // Edge connects two different logical streets - merge them
+            this.mergeLogicalStreets(fromContinuation.street, toContinuation.street);
+            fromContinuation.street.addEdge(edge);
+        }
+        else {
+            // No continuation found - create a new logical street
+            const newStreet = this.createLogicalStreet();
+            newStreet.addEdge(edge);
+        }
+    }
+
+    /**
+     * Find if a logical street can be continued from a given node
+     */
+    private findLogicalStreetContinuation(
+        newEdge: Edge,
+        node: Node,
+        isFromNode: boolean
+    ): { street: LogicalStreet; continuationEdge: Edge } | null {
+        
+        const nodeEdges = node.getOuterEdges().filter(e => 
+            e !== newEdge && e !== newEdge.symmetric && e.symmetric !== newEdge
+        );
+        
+        // Get the degree of the node (excluding the new edge we're adding)
+        const nodeDegree = nodeEdges.length;
+
+        if (nodeDegree === 0) {
+            return null; // Dead end
+        }
+
+        // Find edges that are already part of logical streets
+        const streetEdges = nodeEdges.filter(edge => {
+            return this.findLogicalStreetForEdge(edge);
+        });
+
+        if (streetEdges.length === 0) {
+            return null; // No existing streets to continue
+        }
+
+        // For degree 1 nodes (will become degree 2 with new edge) - simple continuation
+        if (nodeDegree === 1) {
+            const existingEdge = streetEdges[0];
+            const existingStreet = this.findLogicalStreetForEdge(existingEdge);
+            
+            if (existingStreet && this.shouldContinueStreet(existingEdge, newEdge, node, isFromNode)) {
+                return { street: existingStreet, continuationEdge: existingEdge };
+            }
+        }
+
+        // For intersections (degree 2+), find the best continuation
+        if (nodeDegree >= 2) {
+            let bestContinuation: { street: LogicalStreet; continuationEdge: Edge; angle: number } | null = null;
+
+            for (const streetEdge of streetEdges) {
+                const street = this.findLogicalStreetForEdge(streetEdge);
+                if (!street) continue;
+
+                const turnAngle = this.calculateTurnAngle(streetEdge, newEdge, node, isFromNode);
+                
+                // Consider this a valid continuation if turn angle is reasonable
+                if (turnAngle < this.getMaxTurnAngle(nodeDegree)) {
+                    if (!bestContinuation || turnAngle < bestContinuation.angle) {
+                        bestContinuation = { street, continuationEdge: streetEdge, angle: turnAngle };
+                    }
+                }
+            }
+
+            if (bestContinuation) {
+                return { street: bestContinuation.street, continuationEdge: bestContinuation.continuationEdge };
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Calculate the turn angle between two edges at a shared node
+     */
+    private calculateTurnAngle(
+        existingEdge: Edge,
+        newEdge: Edge,
+        sharedNode: Node,
+        newEdgeIsFromNode: boolean
+    ): number {
+        // For street continuation, we need to calculate the turn angle:
+        // - incomingDirection: the direction we came TO the shared node
+        // - outgoingDirection: the direction we're going FROM the shared node
+        
+        let incomingDirection: number[];
+        let outgoingDirection: number[];
+
+        // Determine the incoming direction (how we arrived at the shared node)
+        if (existingEdge.from.id === sharedNode.id) {
+            // Existing edge starts at shared node, so we "came from" the 'to' node
+            incomingDirection = [
+                sharedNode.coordinates[0] - existingEdge.to.coordinates[0],
+                sharedNode.coordinates[1] - existingEdge.to.coordinates[1]
+            ];
+        }
+        else {
+            // Existing edge ends at shared node, so we came from the 'from' node
+            incomingDirection = [
+                sharedNode.coordinates[0] - existingEdge.from.coordinates[0],
+                sharedNode.coordinates[1] - existingEdge.from.coordinates[1]
+            ];
+        }
+
+        // Determine the outgoing direction (where we're going from the shared node)
+        if (newEdgeIsFromNode) {
+            // New edge starts at shared node, so we're going to the 'to' node
+            outgoingDirection = [
+                newEdge.to.coordinates[0] - sharedNode.coordinates[0],
+                newEdge.to.coordinates[1] - sharedNode.coordinates[1]
+            ];
+        }
+        else {
+            // New edge ends at shared node, so we're going to the 'from' node
+            outgoingDirection = [
+                newEdge.from.coordinates[0] - sharedNode.coordinates[0],
+                newEdge.from.coordinates[1] - sharedNode.coordinates[1]
+            ];
+        }
+
+        // Calculate the angle between the vectors
+        const dot = incomingDirection[0] * outgoingDirection[0] + incomingDirection[1] * outgoingDirection[1];
+        const incomingMag = Math.sqrt(incomingDirection[0] ** 2 + incomingDirection[1] ** 2);
+        const outgoingMag = Math.sqrt(outgoingDirection[0] ** 2 + outgoingDirection[1] ** 2);
+        
+        if (incomingMag === 0 || outgoingMag === 0) {
+            return Math.PI; // Invalid case
+        }
+
+        const cosAngle = dot / (incomingMag * outgoingMag);
+        // Clamp to avoid numerical errors
+        const clampedCos = Math.max(-1, Math.min(1, cosAngle));
+        
+        // The angle between vectors
+        // For a straight continuation, vectors should be in same direction (angle = 0)
+        // For a U-turn, vectors should be in opposite directions (angle = PI)
+        const angle = Math.acos(clampedCos);
+        
+        return angle;
+    }
+
+    /**
+     * Check if a street should continue based on turn angle
+     */
+    private shouldContinueStreet(
+        existingEdge: Edge,
+        newEdge: Edge,
+        sharedNode: Node,
+        newEdgeIsFromNode: boolean
+    ): boolean {
+        const turnAngle = this.calculateTurnAngle(existingEdge, newEdge, sharedNode, newEdgeIsFromNode);
+        return turnAngle < Math.PI / 3; // 60 degrees maximum for continuation
+    }
+
+    /**
+     * Get the maximum turn angle allowed for street continuation based on node degree
+     */
+    private getMaxTurnAngle(nodeDegree: number): number {
+        if (nodeDegree <= 2) {
+            return Math.PI / 3; // 60 degrees for simple intersections
+        }
+        else if (nodeDegree === 3) {
+            return Math.PI / 4; // 45 degrees for 4-way intersections
+        }
+        else {
+            return Math.PI / 6; // 30 degrees for complex intersections
+        }
+    }
+
+    /**
+     * Merge two logical streets into one
+     */
+    private mergeLogicalStreets(street1: LogicalStreet, street2: LogicalStreet) {
+        // Move all edges from street2 to street1
+        for (const edge of street2.edges) {
+            street1.addEdge(edge);
+        }
+        
+        // Remove street2 from the map
+        this.logicalStreets.delete(street2.id);
     }
 
     getStreetFeatureCollection(): FeatureCollection<LineString> {
@@ -525,7 +762,8 @@ class Graph {
             Object.keys(this.nodes).forEach((id) =>
                 this._computeNextCWEdges(this.nodes[id])
             );
-        } else {
+        }
+        else {
             node.getOuterEdges().forEach((edge, i) => {
                 node.getOuterEdge(
                     (i === 0 ? node.getOuterEdges().length : i) - 1
@@ -697,6 +935,12 @@ class Graph {
      * @param {Edge} edge - Edge to be removed
      */
     removeEdge(edge: Edge) {
+        // Remove edge from any logical street that contains it
+        const logicalStreet = this.findLogicalStreetForEdge(edge);
+        if (logicalStreet) {
+            logicalStreet.removeEdge(edge);
+        }
+        
         this.edges = this.edges.filter((e) => !e.isEqual(edge));
         edge.deleteEdge();
     }

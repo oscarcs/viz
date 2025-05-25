@@ -345,3 +345,125 @@ test('addLineString should respect per-point snapping states', () => {
     // Point 2 should remain at original position (0.8, 0.5)
     expect(nodes).toHaveProperty('0.8,0.5');
 });
+
+test('Logical streets should be assigned correctly for connected roads', () => {
+    const graph = new Graph();
+    
+    // Create a straight road from point A to B
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [1, 0]]
+    };
+    
+    // Create another road that continues straight from B to C
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0]]
+    };
+    
+    // Create a perpendicular road at point B
+    const street3: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [1, 1]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+    graph.addLineString(street3);
+
+    const logicalStreets = graph.getLogicalStreets();
+    
+    // Debug: log what streets we got
+    console.log(`Number of logical streets: ${logicalStreets.length}`);
+    logicalStreets.forEach((street, i) => {
+        console.log(`Street ${i}: ${street.edges.size} edges`);
+    });
+    
+    // Should have 2 logical streets:
+    // 1. The straight horizontal road (A-B-C)
+    // 2. The perpendicular road (B to north)
+    expect(logicalStreets.length).toBe(2);
+    
+    // Check that each logical street has the expected number of edges
+    const streetSizes = logicalStreets.map(street => street.edges.size).sort();
+    expect(streetSizes).toEqual([2, 4]); // One street with 1 edge pair, one with 2 edge pairs
+});
+
+test('Logical streets should handle acute angle intersections', () => {
+    const graph = new Graph();
+    
+    // Create a horizontal road
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [2, 0]]
+    };
+    
+    // Create a road with a 90-degree angle (perpendicular intersection)
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [1, 1]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+
+    const logicalStreets = graph.getLogicalStreets();
+    
+    // Due to the 90-degree angle, these should be separate logical streets
+    expect(logicalStreets.length).toBe(2);
+});
+
+test('Logical street assignments should be preserved when edges are split at intersections', () => {
+    const graph = new Graph();
+    
+    // Add a straight street first
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [2, 0]]
+    };
+    graph.addLineString(street1);
+    
+    // Get the initial logical streets - should have 1 street with 2 edges
+    let logicalStreets = graph.getLogicalStreets();
+    expect(logicalStreets.length).toBe(1);
+    expect(logicalStreets[0].edges.size).toBe(2); // Edge and its symmetric
+    
+    // Store the street ID for later comparison
+    const originalStreetId = logicalStreets[0].id;
+    
+    // Add an intersecting street that will split the original street
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, -1], [1, 1]]
+    };
+    graph.addLineString(street2);
+    
+    // Check that logical streets are preserved correctly
+    logicalStreets = graph.getLogicalStreets();
+    
+    // Should still have 2 logical streets (the original split street and the new intersecting street)
+    expect(logicalStreets.length).toBe(2);
+    
+    // Find the original street (it should still exist with the same ID)
+    const originalStreet = logicalStreets.find(s => s.id === originalStreetId);
+    expect(originalStreet).toBeDefined();
+    
+    // The original street should now have 4 edges (two segments split from the original, each with symmetric)
+    expect(originalStreet!.edges.size).toBe(4);
+    
+    // The intersecting street should have 4 edges (two segments from the split, each with symmetric)
+    const intersectingStreet = logicalStreets.find(s => s.id !== originalStreetId);
+    expect(intersectingStreet).toBeDefined();
+    expect(intersectingStreet!.edges.size).toBe(4);
+    
+    // Verify that all edges are properly assigned to logical streets
+    const allEdges = graph.getEdges();
+    let assignedEdgesCount = 0;
+    for (const edge of allEdges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(allEdges.length);
+});

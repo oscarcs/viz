@@ -58,52 +58,6 @@ export class LogicalStreet {
     }
     
     /**
-     * Calculate the turn angle between two edges at their shared node
-     * @param incomingEdge - The edge coming into the node
-     * @param outgoingEdge - The edge going out from the node
-     * @returns Turn angle in radians (0 = straight through, π = U-turn)
-     */
-    static calculateTurnAngle(incomingEdge: Edge, outgoingEdge: Edge): number {
-        const node = incomingEdge.to; // The shared node
-        
-        // Vector of incoming direction (pointing toward the node)
-        const incomingVector = [
-            node.coordinates[0] - incomingEdge.from.coordinates[0],
-            node.coordinates[1] - incomingEdge.from.coordinates[1]
-        ];
-        
-        // Vector of outgoing direction (pointing away from the node)
-        const outgoingVector = [
-            outgoingEdge.to.coordinates[0] - node.coordinates[0],
-            outgoingEdge.to.coordinates[1] - node.coordinates[1]
-        ];
-        
-        // Calculate angles
-        const incomingAngle = Math.atan2(incomingVector[1], incomingVector[0]);
-        const outgoingAngle = Math.atan2(outgoingVector[1], outgoingVector[0]);
-        
-        // Calculate turn angle (absolute difference)
-        let turnAngle = Math.abs(outgoingAngle - incomingAngle);
-        
-        // Normalize to [0, π] - we want the smaller angle
-        if (turnAngle > Math.PI) {
-            turnAngle = 2 * Math.PI - turnAngle;
-        }
-        
-        return turnAngle;
-    }
-    
-    /**
-     * Check if two edges should be considered part of the same logical street
-     * Continue the street when the turn angle is less than 60° (straight enough)
-     */
-    static shouldContinueStreet(incomingEdge: Edge, outgoingEdge: Edge): boolean {
-        const turnAngle = LogicalStreet.calculateTurnAngle(incomingEdge, outgoingEdge);
-        const maxTurnAngle = Math.PI / 3; // 60 degrees
-        return turnAngle < maxTurnAngle;
-    }
-    
-    /**
      * Generate a random color for this street
      */
     private generateRandomColor(): [number, number, number, number] {
