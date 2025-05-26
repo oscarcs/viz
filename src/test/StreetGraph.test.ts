@@ -669,3 +669,39 @@ test('Adding a fifth line string to a 4-way cross junction should create a new l
     }
     expect(assignedEdgesCount).toBe(allEdges.length);
 });
+
+test('Self-intersecting line string should have all edges assigned to logical streets', () => {
+    const graph = new StreetGraph();
+    
+    const selfIntersectingStreet: LineString = {
+        type: 'LineString',
+        coordinates: [
+            [0, 0],
+            [0, 2],
+            [2, 2],
+            [2, 1],
+            [-1, 1]
+        ]
+    };
+    
+    graph.addLineString(selfIntersectingStreet);
+    
+    const edges = graph.getEdges();
+    const logicalStreets = graph.getLogicalStreets();
+    const nodes = graph.getNodes();
+    
+    expect(logicalStreets.length).toBe(4);
+    
+    // The intersection point (1,1) should exist as the self-intersection node
+    expect(nodes['1,1']).toBeDefined();
+
+    // Check that all edges are assigned to logical streets
+    let assignedEdgesCount = 0;
+    for (const edge of edges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(edges.length);    
+});
