@@ -6,7 +6,7 @@ import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers'
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/draw-street-mode';
 import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
-import Graph from './ds/Graph';
+import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { area, feature } from '@turf/turf';
@@ -22,7 +22,7 @@ const INITIAL_VIEW_STATE = {
 };
 
 function Root() {
-    const [streetGraph] = React.useState<Graph>(new Graph());
+    const [streetGraph] = React.useState<StreetGraph>(new StreetGraph());
     const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
     
     // GeoJSON data to visualise streets and blocks
@@ -97,7 +97,7 @@ function Root() {
 
                     console.log(`Logical streets: ${streetGraph.getLogicalStreets().length}`);
 
-                    const polygonization = Graph.polygonize(streetGraph.copy());
+                    const polygonization = StreetGraph.polygonize(streetGraph.copy());
                     const blocks = polygonization;//buffer(polygonization, -3, { units: 'meters' });
 
                     if (blocks) {

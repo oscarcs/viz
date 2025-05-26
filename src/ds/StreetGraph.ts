@@ -44,7 +44,7 @@ const SNAP_TOLERANCE = 0.0002;
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
  * This graph is directed (both directions are created)
  */
-class Graph {
+class StreetGraph {
     private nodes: { [id: string]: Node };
     private edges: Edge[];
     private logicalStreets: Map<string, LogicalStreet>;
@@ -54,7 +54,7 @@ class Graph {
      * Creates a graph from a GeoJSON.
      *
      * @param {FeatureCollection<LineString>} geoJson - it must comply with the restrictions detailed in the index
-     * @returns {Graph} - The newly created graph
+     * @returns {StreetGraph} - The newly created graph
      * @throws {Error} if geoJson is invalid.
      */
     static fromGeoJson(
@@ -66,7 +66,7 @@ class Graph {
     ) {
         validateGeoJson(geoJson);
 
-        const graph = new Graph();
+        const graph = new StreetGraph();
         flattenEach(geoJson, (feature) => {
             featureOf(feature, "LineString", "Graph::fromGeoJson");
             // When a LineString if formed by many segments, split them
@@ -626,8 +626,8 @@ class Graph {
         return featureCollection(features);
     }
 
-    copy(): Graph {
-        const graphCopy = new Graph();
+    copy(): StreetGraph {
+        const graphCopy = new StreetGraph();
         
         const processedEdges = new Set<string>();
         
@@ -950,7 +950,7 @@ class Graph {
      * Note that this operation is destructive on the graph - it will remove dangles and cut edges.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
      */
-    static polygonize(graph: Graph): FeatureCollection<Polygon> {
+    static polygonize(graph: StreetGraph): FeatureCollection<Polygon> {
         graph.deleteDangles();
         graph.deleteCutEdges();
 
@@ -1063,5 +1063,4 @@ class Graph {
     }
 }
 
-export { Graph };
-export default Graph;
+export default StreetGraph;

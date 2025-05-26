@@ -1,9 +1,9 @@
 import { expect, test } from 'vitest';
-import { Graph } from '../ds/Graph';
+import StreetGraph from '../ds/StreetGraph';
 import { LineString } from 'geojson';
 
 test('Intersecting two streets should calculate the correct intersection point', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
 
     const street1: LineString = {
         type: 'LineString',
@@ -60,7 +60,7 @@ test('Intersecting two streets should calculate the correct intersection point',
 });
 
 test('Adding a grid of line strings should create the correct number of nodes and edges', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     const street1: LineString = {
         type: 'LineString',
@@ -107,7 +107,7 @@ test('Adding a grid of line strings should create the correct number of nodes an
 });
 
 test('Polygonization should work with epsilon handling', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
 
     // Create a simple square
     const street1: LineString = {
@@ -133,14 +133,14 @@ test('Polygonization should work with epsilon handling', () => {
     graph.addLineString(street4);
 
     // Test polygonization
-    const polygons = Graph.polygonize(graph.copy());
+    const polygons = StreetGraph.polygonize(graph.copy());
     
     expect(polygons.features.length).toBe(1);
     expect(polygons.features[0].geometry.type).toBe('Polygon');
 });
 
 test('Splitting existing polygon two ways should produce 4 polygons', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
 
     // Create a square by adding intersecting lines that should split at the middle
     const horizontalLine: LineString = {
@@ -190,12 +190,12 @@ test('Splitting existing polygon two ways should produce 4 polygons', () => {
     expect(intersectionNode).toBeDefined();
         
     // Check correct number of polygons formed
-    const polygons = Graph.polygonize(graph);        
+    const polygons = StreetGraph.polygonize(graph);        
     expect(polygons.features.length).equals(4);
 });
 
 test('Should handle floating-point precision issues when snapping coordinates', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
 
     // Add a horizontal street
     const street1: LineString = {
@@ -246,7 +246,7 @@ test('Should handle floating-point precision issues when snapping coordinates', 
 });
 
 test('Should handle exact coordinate matching', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
 
     // Add a horizontal street
     const street1: LineString = {
@@ -279,7 +279,7 @@ test('Should handle exact coordinate matching', () => {
 });
 
 test('Splitting a handcrafted quadrilateral vertically should result in two polygons', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     const square: LineString = {
         type: 'LineString',
@@ -304,12 +304,12 @@ test('Splitting a handcrafted quadrilateral vertically should result in two poly
     
     graph.addLineString(verticalLine);
 
-    const polygons = Graph.polygonize(graph.copy());    
+    const polygons = StreetGraph.polygonize(graph.copy());    
     expect(polygons.features.length).toBe(2);
 });
 
 test('addLineString should respect per-point snapping states', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     const horizontalLine: LineString = {
         type: 'LineString',
@@ -347,7 +347,7 @@ test('addLineString should respect per-point snapping states', () => {
 });
 
 test('Logical streets should be assigned correctly for connected roads', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     // Create a straight road from point A to B
     const street1: LineString = {
@@ -390,7 +390,7 @@ test('Logical streets should be assigned correctly for connected roads', () => {
 });
 
 test('Logical streets should handle acute angle intersections', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     // Create a horizontal road
     const street1: LineString = {
@@ -414,7 +414,7 @@ test('Logical streets should handle acute angle intersections', () => {
 });
 
 test('Logical street assignments should be preserved when edges are split at intersections', () => {
-    const graph = new Graph();
+    const graph = new StreetGraph();
     
     // Add a straight street first
     const street1: LineString = {

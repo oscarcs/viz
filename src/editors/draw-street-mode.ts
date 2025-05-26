@@ -11,7 +11,7 @@ import {
     Tooltip
 } from "@deck.gl-community/editable-layers";
 import { distance } from '@turf/turf';
-import Graph from '../ds/Graph';
+import StreetGraph from '../ds/StreetGraph';
 
 export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
@@ -22,12 +22,12 @@ export class DrawStreetMode extends GeoJsonEditMode {
     private shiftPressed = false;
     private snapThreshold = 0.0002; // Distance threshold for snapping in map units
     private snapTarget: { point: Position; type: 'node' | 'edge' } | null = null;
-    private graph: Graph | null = null;
+    private graph: StreetGraph | null = null;
     
     // Track snap-to-edge/snap-to-vertex state for each point in the current line string
     private pointSnappingStates: boolean[] = [];
 
-    constructor(graph?: Graph) {
+    constructor(graph?: StreetGraph) {
         super();
         this.graph = graph || null;
         
@@ -50,7 +50,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
         }
     }
 
-    setGraph(graph: Graph) {
+    setGraph(graph: StreetGraph) {
         this.graph = graph;
     }
 
@@ -311,7 +311,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
      * @param graph - The street graph to search in
      * @returns Snap target information or null
      */
-    private findSnapTarget(position: Position, graph: Graph): { point: Position; type: 'node' | 'edge' } | null {
+    private findSnapTarget(position: Position, graph: StreetGraph): { point: Position; type: 'node' | 'edge' } | null {
         if (!graph) return null;
 
         // First check for nearby nodes (endpoints have higher priority)
@@ -341,7 +341,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
      * @param graph - The street graph to snap to
      * @returns The final position to use (snapped or original)
      */
-    private getSnappedPosition(originalPosition: Position, graph: Graph): Position {
+    private getSnappedPosition(originalPosition: Position, graph: StreetGraph): Position {
         // Don't snap if Shift is held down
         if (this.shiftPressed) {
             this.snapTarget = null;
