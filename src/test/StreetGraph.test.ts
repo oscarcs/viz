@@ -692,8 +692,8 @@ test('Self-intersecting line string should have all edges assigned to logical st
     
     expect(logicalStreets.length).toBe(4);
     
-    // The intersection point (1,1) should exist as the self-intersection node
-    expect(nodes['1,1']).toBeDefined();
+    // The intersection point (0,1) should exist as the self-intersection node
+    expect(nodes['0,1']).toBeDefined();
 
     // Check that all edges are assigned to logical streets
     let assignedEdgesCount = 0;
