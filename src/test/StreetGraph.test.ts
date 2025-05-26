@@ -544,3 +544,84 @@ const graph = new StreetGraph();
     }
     expect(assignedEdgesCount).toBe(allEdges.length);
 });
+
+test('Creating a 3-way y-junction with two line strings should produce two logical streets', () => {
+    const graph = new StreetGraph();
+
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [2, 0]]
+    };
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0.2]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+
+    const logicalStreets = graph.getLogicalStreets();
+
+    // Should have 2 logical streets, the main road and the branch
+    expect(logicalStreets.length).toBe(2);
+
+    // Check that each logical street has the expected number of edges
+    const streetSizes = logicalStreets.map(street => street.edges.size).sort();
+    expect(streetSizes).toEqual([2, 4]); // One street with 1 edge pair (branch), one with 2 edge pairs (main road)
+    
+    // Verify that all edges are properly assigned to logical streets
+    const allEdges = graph.getEdges();
+    let assignedEdgesCount = 0;
+    for (const edge of allEdges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(allEdges.length);
+});
+
+test('Creating a 3-way y-junction with three line strings should produce two logical streets', () => {
+    const graph = new StreetGraph();
+    
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [1, 0]]
+    };
+
+    // The upper and lower branches of the y-junction
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, -0.2]]
+    };
+    const street3: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0.2]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+    graph.addLineString(street3);
+
+    const logicalStreets = graph.getLogicalStreets();
+    
+    // Should have 2 logical streets:
+    // 1. The straight main road (street1 + street2), because they were added first.
+    // 2. The branching road (street3)
+    expect(logicalStreets.length).toBe(2);
+    
+    // Check that each logical street has the expected number of edges
+    const streetSizes = logicalStreets.map(street => street.edges.size).sort();
+    expect(streetSizes).toEqual([2, 4]); // One street with 1 edge pair (branch), one with 2 edge pairs (main road)
+    
+    // Verify that all edges are properly assigned to logical streets
+    const allEdges = graph.getEdges();
+    let assignedEdgesCount = 0;
+    for (const edge of allEdges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(allEdges.length);
+});
