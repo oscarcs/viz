@@ -4,7 +4,7 @@ import DeckGL from '@deck.gl/react';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
-import { DrawStreetMode } from './editors/draw-street-mode';
+import { DrawStreetMode } from './editors/DrawStreetMode';
 import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget } from './widget/ToolbarWidget';
