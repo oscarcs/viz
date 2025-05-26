@@ -133,7 +133,7 @@ class StreetGraph {
         }
 
         const { pointSnapping } = options;
-        const newEdges: Edge[] = [];
+        let newEdges: Edge[] = [];
 
         for (let i = 0; i < street.coordinates.length - 1; i++) {
             let start = street.coordinates[i];
@@ -175,10 +175,20 @@ class StreetGraph {
             splitPoints.sort((a, b) => this.distance(start, a) - this.distance(start, b));
 
             // Split existing edges at intersection points
+            const edgesToRemoveFromNewEdges = new Set<Edge>();
             for (const inter of intersections) {
                 const intersectionNode = this.getNode(inter.point);
-                this.splitEdgeAtIntersection(inter.edge, intersectionNode);
+                const splitEdges = this.splitEdgeAtIntersection(inter.edge, intersectionNode);
+                
+                // Add the edges created from splitting to our newEdges array for logical street assignment
+                newEdges.push(...splitEdges);
+                
+                // Mark the original edge for removal from newEdges since it was split
+                edgesToRemoveFromNewEdges.add(inter.edge);
             }
+            
+            // Remove the split edges from newEdges
+            newEdges = newEdges.filter(edge => !edgesToRemoveFromNewEdges.has(edge));
 
             // Add edges between consecutive split points
             for (let j = 0; j < splitPoints.length - 1; j++) {
@@ -268,13 +278,13 @@ class StreetGraph {
     }
 
     // Split an existing edge at the intersection point
-    private splitEdgeAtIntersection(edge: Edge, intersectionNode: Node) {
+    private splitEdgeAtIntersection(edge: Edge, intersectionNode: Node): Edge[] {
         const fromNode = edge.from;
         const toNode = edge.to;
         
         // Skip if the edge already connects to this intersection
         if (fromNode.id === intersectionNode.id || toNode.id === intersectionNode.id) {
-            return;
+            return [];
         }
         
         // Find the logical street that contains this edge before removing it
@@ -286,11 +296,21 @@ class StreetGraph {
         const newEdge1 = this.addEdge(fromNode, intersectionNode);
         const newEdge2 = this.addEdge(intersectionNode, toNode);
         
-        // If the original edge was part of a logical street, add the new edges to the same street
+        const newEdges: Edge[] = [];
+        
+        // If the original edge was part of a logical street, add the new edges to the same street immediately
+        // This preserves street continuity when existing streets are split by intersections
         if (logicalStreet && newEdge1 && newEdge2) {
             logicalStreet.addEdge(newEdge1);
             logicalStreet.addEdge(newEdge2);
         }
+        else {
+            // If not part of a logical street, return them for normal assignment
+            if (newEdge1) newEdges.push(newEdge1);
+            if (newEdge2) newEdges.push(newEdge2);
+        }
+        
+        return newEdges;
     }
 
     private lineIntersection(line1Start: number[], line1End: number[], line2Start: number[], line2End: number[]): number[] | null {
