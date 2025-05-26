@@ -94,6 +94,16 @@ export class DrawStreetMode extends GeoJsonEditMode {
             
             positionAdded = true;
         }
+        else {
+            // Clicking on an existing edit handle
+            const handlePosition = clickedEditHandle.geometry.coordinates as Position;
+            this.addClickSequence({ ...event, mapCoords: handlePosition });
+            this.pointSnappingStates.push(true); // Edit handles are always considered snapped
+
+            // Finish adding streets when clicking on an edit handle
+            this.handleNewStreet(props, this.getClickSequence());
+            return;
+        }
         const clickSequence = this.getClickSequence();
 
         // If the pointer is in an editable state, recalculate the info draw
@@ -101,15 +111,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
             this.calculateInfoDraw(clickSequence);
         }
 
-        if (
-            clickSequence.length > 1 &&
-            clickedEditHandle &&
-            Array.isArray(clickedEditHandle.properties.positionIndexes) &&
-            clickedEditHandle.properties.positionIndexes[0] === clickSequence.length - 1
-        ) {
-            this.handleNewStreet(props, clickSequence);
-        }
-        else if (positionAdded) {
+        if (positionAdded) {
             // new tentative point - use the same snapped position we calculated above
             props.onEdit({
                 updatedData: props.data,
