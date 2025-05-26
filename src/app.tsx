@@ -12,6 +12,7 @@ import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { StreetTooltip } from './widget/StreetTooltip';
+import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
 import { area, feature } from '@turf/turf';
 import { Polygon } from 'geojson';
 import { Building, generateLotsFromBlock } from './procgen/Building';
@@ -153,6 +154,7 @@ function Root() {
                 activeTool={activeTool}
                 onToolChange={setActiveTool}
             />
+            <KeyboardShortcutsWidget activeTool={activeTool} />
             {hoverInfo && activeTool === 'select' && (
                 <StreetTooltip hoverInfo={hoverInfo} streetGraph={streetGraph} />
             )}
