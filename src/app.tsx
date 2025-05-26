@@ -1,14 +1,17 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
+import { PickingInfo } from '@deck.gl/core';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
+import { SelectStreetMode } from './editors/SelectStreetMode';
 import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
-import { ToolbarWidget } from './widget/ToolbarWidget';
+import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
+import { StreetTooltip } from './widget/StreetTooltip';
 import { area, feature } from '@turf/turf';
 import { Polygon } from 'geojson';
 import { Building, generateLotsFromBlock } from './procgen/Building';
@@ -24,17 +27,23 @@ const INITIAL_VIEW_STATE = {
 function Root() {
     const [streetGraph] = React.useState<StreetGraph>(new StreetGraph());
     const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
+    const [selectMode] = React.useState(() => new SelectStreetMode(streetGraph));
+    const [activeTool, setActiveTool] = React.useState<ToolType>('draw');
+    const [hoverInfo, setHoverInfo] = React.useState<PickingInfo | null>(null);
     
     // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
-    const [skeletonsData, setSkeletonsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
-    const [buildingData, setBuildingData] = React.useState<Building[]>([]);
+    const [skeletonsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
+    const [buildingData] = React.useState<Building[]>([]);
+
+    // Get the current mode based on active tool
+    const currentMode = activeTool === 'draw' ? drawMode : selectMode;
 
     React.useEffect(() => {
-        // Update the draw mode with the current graph whenever it changes
         drawMode.setGraph(streetGraph);
-    }, [streetGraph, drawMode]);
+        selectMode.setGraph(streetGraph);
+    }, [streetGraph, drawMode, selectMode]);
 
     React.useEffect(() => {
         return () => {
@@ -77,7 +86,7 @@ function Root() {
         new EditableGeoJsonLayer({
             id: "streets",
             data: streetsData,
-            mode: drawMode,
+            mode: currentMode,
             filled: true,
             getLineWidth: 3,
             getFillColor: [200, 0, 80, 180],
@@ -87,9 +96,16 @@ function Root() {
             pickable: true,
             selectedFeatureIndexes: [],
             editHandleType: 'point',
+            onHover: (info: PickingInfo) => {
+                if (activeTool === 'select') {
+                    setHoverInfo(info.object ? info : null);
+                }
+                else {
+                    setHoverInfo(null);
+                }
+            },
             onEdit: ({updatedData, editType}) => {
-                if (editType !== 'addTentativePosition') {
-
+                if (activeTool === 'draw' && editType !== 'addTentativePosition') {
                     streetGraph.addLineString(updatedData.features[0].geometry, { 
                         pointSnapping: drawMode.getPointSnappingStates()
                     });
@@ -133,7 +149,13 @@ function Root() {
             layers={layers}
         >
             <CustomCompassWidget />
-            <ToolbarWidget />
+            <ToolbarWidget 
+                activeTool={activeTool}
+                onToolChange={setActiveTool}
+            />
+            {hoverInfo && activeTool === 'select' && (
+                <StreetTooltip hoverInfo={hoverInfo} streetGraph={streetGraph} />
+            )}
         </DeckGL>
     );
 }

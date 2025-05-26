@@ -4,6 +4,12 @@ import { useWidget } from "@deck.gl/react";
 import { createPortal } from "react-dom";
 import { Hand, Spline } from "lucide-react";
 
+export type ToolType = 'select' | 'draw';
+
+interface ToolbarWidgetProps {
+    activeTool: ToolType;
+    onToolChange: (tool: ToolType) => void;
+}
 
 class ToolbarWidgetClass implements Widget {
     id = 'toolbar-widget';
@@ -20,7 +26,7 @@ class ToolbarWidgetClass implements Widget {
     }
 }
 
-export const ToolbarWidget = (props: any) => {
+export const ToolbarWidget = (props: ToolbarWidgetProps) => {
     const element = useMemo(() => {
         const el = document.createElement('div');
         el.className = 'deck-widget';
@@ -32,12 +38,14 @@ export const ToolbarWidget = (props: any) => {
             <ToolbarButton
                 icon={<Hand size={20} />}
                 label="Select"
-                onClick={() => { }}
+                isActive={props.activeTool === 'select'}
+                onClick={() => props.onToolChange('select')}
             />
             <ToolbarButton
                 icon={<Spline size={20} />}
                 label="Add Street"
-                onClick={() => { }}
+                isActive={props.activeTool === 'draw'}
+                onClick={() => props.onToolChange('draw')}
             />
         </div>,
         element
@@ -47,15 +55,20 @@ export const ToolbarWidget = (props: any) => {
 interface ToolbarButtonProps {
     icon: React.ReactNode;
     label: string;
+    isActive?: boolean;
     onClick: () => void;
 }
 
-const ToolbarButton = ({ icon, label, onClick }: ToolbarButtonProps) => {
+const ToolbarButton = ({ icon, label, isActive = false, onClick }: ToolbarButtonProps) => {
     const [isHovered, setIsHovered] = useState(false);
     
     return (
         <button 
-            className="pointer-events-auto cursor-pointer w-full border border-gray-300 rounded-md bg-gray-100/70 p-3 relative flex items-center"
+            className={`pointer-events-auto cursor-pointer w-full border rounded-md p-3 relative flex items-center transition-colors ${
+                isActive 
+                    ? 'border-blue-500 bg-blue-100/70 text-blue-700' 
+                    : 'border-gray-300 bg-gray-100/70 hover:bg-gray-200/70'
+            }`}
             onClick={onClick}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
