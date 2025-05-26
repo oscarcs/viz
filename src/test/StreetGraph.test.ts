@@ -346,7 +346,51 @@ test('addLineString should respect per-point snapping states', () => {
     expect(nodes).toHaveProperty('0.8,0.5');
 });
 
-test('Logical streets should be assigned correctly for connected roads', () => {
+test('Creating a street with two line strings should produce one logical street', () => {
+    const graph = new StreetGraph();
+    
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [1, 0]]
+    };
+    
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0.2]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+
+    const logicalStreets = graph.getLogicalStreets();
+    expect(logicalStreets.length).toBe(1);
+});
+
+test('Creating a t-junction with two line strings should produce two logical streets', () => {
+    const graph = new StreetGraph();
+    
+    // Horizontal road
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [2, 0]]
+    };
+    
+    // Road with a 90-degree angle
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [1, 1]]
+    };
+
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+
+    const logicalStreets = graph.getLogicalStreets();
+    
+    // Due to the 90-degree angle, these should be separate logical streets
+    expect(logicalStreets.length).toBe(2);
+});
+
+test('Creating a t-junction with three line strings should produce two logical streets', () => {
     const graph = new StreetGraph();
     
     // Create a straight road from point A to B
@@ -373,12 +417,6 @@ test('Logical streets should be assigned correctly for connected roads', () => {
 
     const logicalStreets = graph.getLogicalStreets();
     
-    // Debug: log what streets we got
-    console.log(`Number of logical streets: ${logicalStreets.length}`);
-    logicalStreets.forEach((street, i) => {
-        console.log(`Street ${i}: ${street.edges.size} edges`);
-    });
-    
     // Should have 2 logical streets:
     // 1. The straight horizontal road (A-B-C)
     // 2. The perpendicular road (B to north)
@@ -389,31 +427,7 @@ test('Logical streets should be assigned correctly for connected roads', () => {
     expect(streetSizes).toEqual([2, 4]); // One street with 1 edge pair, one with 2 edge pairs
 });
 
-test('Logical streets should handle acute angle intersections', () => {
-    const graph = new StreetGraph();
-    
-    // Create a horizontal road
-    const street1: LineString = {
-        type: 'LineString',
-        coordinates: [[0, 0], [2, 0]]
-    };
-    
-    // Create a road with a 90-degree angle (perpendicular intersection)
-    const street2: LineString = {
-        type: 'LineString',
-        coordinates: [[1, 0], [1, 1]]
-    };
-
-    graph.addLineString(street1);
-    graph.addLineString(street2);
-
-    const logicalStreets = graph.getLogicalStreets();
-    
-    // Due to the 90-degree angle, these should be separate logical streets
-    expect(logicalStreets.length).toBe(2);
-});
-
-test('Logical street assignments should be preserved when edges are split at intersections', () => {
+test('Creating a 4-way cross junction using two line strings should produce two logical streets', () => {
     const graph = new StreetGraph();
     
     // Add a straight street first
@@ -455,6 +469,69 @@ test('Logical street assignments should be preserved when edges are split at int
     const intersectingStreet = logicalStreets.find(s => s.id !== originalStreetId);
     expect(intersectingStreet).toBeDefined();
     expect(intersectingStreet!.edges.size).toBe(4);
+    
+    // Verify that all edges are properly assigned to logical streets
+    const allEdges = graph.getEdges();
+    let assignedEdgesCount = 0;
+    for (const edge of allEdges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(allEdges.length);
+});
+
+test('Creating a 4-way cross junction with four line strings should produce two logical streets', () => {
+const graph = new StreetGraph();
+    
+    const street1a: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [1, 0]]
+    };
+
+    const street2a: LineString = {
+        type: 'LineString',
+        coordinates: [[1, -1], [1, 0]]
+    };
+
+    const street1b: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0]]
+    };
+
+    const street2b: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 1], [1, 0]]
+    };
+
+    graph.addLineString(street1a);
+    graph.addLineString(street2a);
+
+    // Get the initial logical streets - should have 2 streets with 2 edges
+    let logicalStreets = graph.getLogicalStreets();
+    expect(logicalStreets.length).toBe(2);
+    
+    // Store the street IDs for later comparison
+    const originalStreet1Id = logicalStreets[0].id;
+    const originalStreet2Id = logicalStreets[1].id;
+
+    graph.addLineString(street1b);
+    graph.addLineString(street2b);
+    
+    // Check that logical streets are preserved correctly
+    logicalStreets = graph.getLogicalStreets();
+    
+    expect(logicalStreets.length).toBe(2);
+    
+    // Find the original streets (they should still exist and have 4 edges)
+    const originalStreet1 = logicalStreets.find(s => s.id === originalStreet1Id);
+    expect(originalStreet1).toBeDefined();
+    expect(originalStreet1!.edges.size).toBe(4);
+
+    const originalStreet2 = logicalStreets.find(s => s.id === originalStreet2Id);
+    expect(originalStreet2).toBeDefined();
+    expect(originalStreet2!.edges.size).toBe(4);
     
     // Verify that all edges are properly assigned to logical streets
     const allEdges = graph.getEdges();
