@@ -606,7 +606,7 @@ test('Creating a 3-way y-junction with three line strings should produce two log
     const logicalStreets = graph.getLogicalStreets();
     
     // Should have 2 logical streets:
-    // 1. The straight main road (street1 + street2), because they were added first.
+    // 1. The main road (street1 + street2), because they were added first.
     // 2. The branching road (street3)
     expect(logicalStreets.length).toBe(2);
     
@@ -615,6 +615,50 @@ test('Creating a 3-way y-junction with three line strings should produce two log
     expect(streetSizes).toEqual([2, 4]); // One street with 1 edge pair (branch), one with 2 edge pairs (main road)
     
     // Verify that all edges are properly assigned to logical streets
+    const allEdges = graph.getEdges();
+    let assignedEdgesCount = 0;
+    for (const edge of allEdges) {
+        const street = graph.findLogicalStreetForEdge(edge);
+        if (street) {
+            assignedEdgesCount++;
+        }
+    }
+    expect(assignedEdgesCount).toBe(allEdges.length);
+});
+
+test('Adding a fifth line string to a 4-way cross junction should create a new logical street', () => {
+    const graph = new StreetGraph();
+    
+    // Create a 4-way cross junction first
+    const street1: LineString = {
+        type: 'LineString',
+        coordinates: [[0, 0], [2, 0]]  // Horizontal street
+    };
+    const street2: LineString = {
+        type: 'LineString',
+        coordinates: [[1, -1], [1, 1]]  // Vertical street
+    };
+    
+    graph.addLineString(street1);
+    graph.addLineString(street2);
+    
+    // Should have 2 logical streets
+    let logicalStreets = graph.getLogicalStreets();
+    expect(logicalStreets.length).toBe(2);
+    
+    // Now add a fifth line string at a small angle to the horizontal street
+    const street5: LineString = {
+        type: 'LineString',
+        coordinates: [[1, 0], [2, 0.1]]  // Small angle (~5.7 degrees) from horizontal
+    };
+    
+    graph.addLineString(street5);
+    
+    // Should now have 3 logical streets (not 2) - the fifth street should not be added to the horizontal street
+    logicalStreets = graph.getLogicalStreets();
+    expect(logicalStreets.length).toBe(3);
+    
+    // Verify that all edges are properly assigned
     const allEdges = graph.getEdges();
     let assignedEdgesCount = 0;
     for (const edge of allEdges) {

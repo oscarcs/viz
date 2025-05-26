@@ -464,10 +464,19 @@ class StreetGraph {
                 const street = this.findLogicalStreetForEdge(streetEdge);
                 if (!street) continue;
 
+                // Check if adding this edge would violate the "at most 2 edges per node" constraint
+                if (this.wouldViolateLogicalStreetNodeConstraint(street, node)) {
+                    continue; // Skip this potential continuation
+                }
+
                 const turnAngle = this.calculateTurnAngle(streetEdge, newEdge, node, isFromNode);
                 
+                // Use the final degree (after adding new edge) for determining max turn angle
+                const finalDegree = nodeDegree + 1;
+                let maxTurnAngle = this.getMaxTurnAngle(finalDegree);
+                
                 // Consider this a valid continuation if turn angle is reasonable
-                if (turnAngle < this.getMaxTurnAngle(nodeDegree)) {
+                if (turnAngle < maxTurnAngle) {
                     if (!bestContinuation || turnAngle < bestContinuation.angle) {
                         bestContinuation = { street, continuationEdge: streetEdge, angle: turnAngle };
                     }
@@ -480,6 +489,28 @@ class StreetGraph {
         }
 
         return null;
+    }
+
+
+    /**
+     * Check if adding a new edge to a logical street would violate the constraint
+     * that a logical street can have at most 2 edge pairs at any given node
+     */
+    private wouldViolateLogicalStreetNodeConstraint(street: LogicalStreet, node: Node): boolean {
+        // Count unique edge pairs (not counting symmetric edges separately)
+        const connectedEdges = new Set<string>();
+        
+        for (const edge of street.edges) {
+            if (edge.from.id === node.id || edge.to.id === node.id) {
+                // Create a normalized edge key that treats (A,B) and (B,A) as the same
+                const edgeKey = [edge.from.id, edge.to.id].sort().join('-');
+                connectedEdges.add(edgeKey);
+            }
+        }
+        
+        // If adding this new edge would result in more than 2 unique edge pairs at this node, 
+        // it violates the constraint (a logical street should be a simple path through intersections)
+        return connectedEdges.size >= 2;
     }
 
     /**
@@ -569,19 +600,16 @@ class StreetGraph {
      */
     private getMaxTurnAngle(nodeDegree: number): number {
         if (nodeDegree <= 2) {
-            return Math.PI / 3; // 60 degrees for simple intersections
+            return Math.PI / 3;
         }
         else if (nodeDegree === 3) {
-            return Math.PI / 4; // 45 degrees for 4-way intersections
+            return Math.PI / 4;
         }
         else {
-            return Math.PI / 6; // 30 degrees for complex intersections
+            return Math.PI / 6;
         }
     }
 
-    /**
-     * Merge two logical streets into one
-     */
     private mergeLogicalStreets(street1: LogicalStreet, street2: LogicalStreet) {
         // Move all edges from street2 to street1
         for (const edge of street2.edges) {
