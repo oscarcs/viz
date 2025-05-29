@@ -6,12 +6,11 @@ import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
-import { SelectMode } from './editors/SelectMode';
 import { PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
-import { StreetTooltip } from './widget/StreetTooltip';
+import { InfoTooltip } from './widget/StreetTooltip';
 import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
 import { Building } from './procgen/Building';
 import { generateLotsFromBlock, Lot } from './procgen/Lots';
@@ -27,22 +26,18 @@ const INITIAL_VIEW_STATE = {
 function Root() {
     const [streetGraph] = React.useState<StreetGraph>(new StreetGraph());
     const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
-    const [selectMode] = React.useState(() => new SelectMode(streetGraph));
     const [activeTool, setActiveTool] = React.useState<ToolType>('draw');
     const [hoverInfo, setHoverInfo] = React.useState<PickingInfo | null>(null);
     
-    // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [lotsData, setLotsData] = React.useState<Lot[]>([]);
     const [buildingData] = React.useState<Building[]>([]);
 
-    // Get the current mode based on active tool
-    const currentMode = activeTool === 'draw' ? drawMode : selectMode;
+    const currentMode = activeTool === 'draw' ? drawMode : null;
 
     React.useEffect(() => {
         drawMode.setGraph(streetGraph);
-        selectMode.setGraph(streetGraph);
-    }, [streetGraph, drawMode, selectMode]);
+    }, [streetGraph, drawMode]);
 
     React.useEffect(() => {
         return () => {
@@ -58,7 +53,15 @@ function Root() {
             stroked: false,
             getPolygon: (lot: Lot) => lot.geometry.coordinates[0],
             getFillColor: (lot: Lot) => lot.color,
-            pickable: true
+            pickable: true,
+            onHover: (info: PickingInfo) => {
+                if (activeTool === 'select') {
+                    setHoverInfo(info.object ? info : null);
+                }
+                else {
+                    setHoverInfo(null);
+                }
+            }
         }),
         new PolygonLayer<Building>({
             id: "buildings",
@@ -132,7 +135,7 @@ function Root() {
             />
             <KeyboardShortcutsWidget activeTool={activeTool} />
             {hoverInfo && activeTool === 'select' && (
-                <StreetTooltip hoverInfo={hoverInfo} streetGraph={streetGraph} />
+                <InfoTooltip hoverInfo={hoverInfo} streetGraph={streetGraph} />
             )}
         </DeckGL>
     );

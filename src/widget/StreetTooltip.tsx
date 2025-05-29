@@ -2,12 +2,12 @@ import React from 'react';
 import { PickingInfo } from '@deck.gl/core';
 import StreetGraph from '../ds/StreetGraph';
 
-interface StreetTooltipProps {
+interface InfoTooltipProps {
     hoverInfo: PickingInfo;
     streetGraph: StreetGraph;
 }
 
-export const StreetTooltip: React.FC<StreetTooltipProps> = ({ hoverInfo, streetGraph }) => {
+export const InfoTooltip: React.FC<InfoTooltipProps> = ({ hoverInfo, streetGraph }) => {
     if (!hoverInfo.object || !hoverInfo.object.properties?.logicalStreetId) {
         return null;
     }
