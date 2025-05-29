@@ -6,7 +6,7 @@ import {
 } from "@deck.gl-community/editable-layers";
 import StreetGraph from '../ds/StreetGraph';
 
-export class SelectStreetMode extends GeoJsonEditMode {
+export class SelectMode extends GeoJsonEditMode {
     private graph: StreetGraph | null = null;
     
     constructor(graph?: StreetGraph) {

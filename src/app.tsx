@@ -6,16 +6,15 @@ import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
-import { SelectStreetMode } from './editors/SelectStreetMode';
-import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
+import { SelectMode } from './editors/SelectMode';
+import { PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { StreetTooltip } from './widget/StreetTooltip';
 import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
-import { area, feature } from '@turf/turf';
-import { Polygon } from 'geojson';
-import { Building, generateLotsFromBlock } from './procgen/Building';
+import { Building } from './procgen/Building';
+import { generateLotsFromBlock, Lot } from './procgen/Lots';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -28,14 +27,13 @@ const INITIAL_VIEW_STATE = {
 function Root() {
     const [streetGraph] = React.useState<StreetGraph>(new StreetGraph());
     const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
-    const [selectMode] = React.useState(() => new SelectStreetMode(streetGraph));
+    const [selectMode] = React.useState(() => new SelectMode(streetGraph));
     const [activeTool, setActiveTool] = React.useState<ToolType>('draw');
     const [hoverInfo, setHoverInfo] = React.useState<PickingInfo | null>(null);
     
     // GeoJSON data to visualise streets and blocks
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
-    const [blocksData, setBlocksData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
-    const [skeletonsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
+    const [lotsData, setLotsData] = React.useState<Lot[]>([]);
     const [buildingData] = React.useState<Building[]>([]);
 
     // Get the current mode based on active tool
@@ -53,20 +51,13 @@ function Root() {
     }, [drawMode]);
 
     const layers = [
-        new GeoJsonLayer({
-            id: "skeletons",
-            data: skeletonsData as any,
-            filled: false,
-            stroked: true,
-            getFillColor: (_: any) => [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255],
-            pickable: true
-        }),
-        new GeoJsonLayer({
-            id: "blocks",
-            data: blocksData as any,
+        new PolygonLayer<Lot>({
+            id: "lots",
+            data: lotsData,
             filled: true,
             stroked: false,
-            getFillColor: (_: any) => [200, 200, 200, 255],
+            getPolygon: (lot: Lot) => lot.geometry.coordinates[0],
+            getFillColor: (lot: Lot) => lot.color,
             pickable: true
         }),
         new PolygonLayer<Building>({
@@ -112,32 +103,17 @@ function Root() {
                     });
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
-                    console.log(`Logical streets: ${streetGraph.getLogicalStreets().length}`);
-
-                    const polygonization = StreetGraph.polygonize(streetGraph.copy());
-                    const blocks = polygonization;//buffer(polygonization, -3, { units: 'meters' });
-
+                    const blocks = StreetGraph.polygonize(streetGraph.copy());
+                    const lots: Lot[] = [];
+                    
                     if (blocks) {
-                        // hack: remove small polygons. we need to fix the tolerances of the polygonizer
-                        blocks.features = blocks.features.filter((block) => area(block) > 0.1);
-
-                        const newBlocks = blocks.features.map(b => feature(generateLotsFromBlock(b.geometry as Polygon)))
-                        setBlocksData(newBlocks as any);
-
-                        // const buildings: Building[] = [];
-
-                        // for (const block of blocks.features) {
-                        //     const lots = generateLotsFromBlock(block.geometry as any);
-                        //     const b = lots
-                        //         .map((lot: Polygon) => generateFloorplanFromLot(lot))
-                        //         .filter((floorplan: Polygon | null) => floorplan !== null)
-                        //         .map((floorplan: Polygon) => generateBuildingFromFloorplan(floorplan, 10, 50))
-                        //         .filter((building: Building | null) => building !== null) as Building[];
-                        //     buildings.push(...b);
-                        // }
-
-                        // setBuildingData(buildings);
+                        for (const block of blocks.features) {
+                            const generatedLots = generateLotsFromBlock(block.geometry);
+                            lots.push(...generatedLots);
+                        }
                     }
+
+                    setLotsData(lots);
                 }
             }
         })
