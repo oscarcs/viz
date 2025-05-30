@@ -17,8 +17,31 @@ export type Lot = {
     id: string;
 };
 
+/**
+ * Calculate lots from a block polygon and its bounding logical streets according to the algorithm given in Vanegas et al. (2012).
+ * @param block Polygon representing the block and its bounding logical streets.
+ * @returns An array of lots.
+ */
 export function generateLotsFromBlock(block: Block): Lot[] {
     // Step 1: Calculate the offset straight skeleton of the block
+    const faces = calculateFacesFromBlock(block);
+
+    // Step 2: Calculate the alpha-strips for the skeleton faces
+    const alphaStrips = calculateAlphaStripsFromFaces(faces, block.boundingStreets);
+
+    // Step 3: Adjust the strips at the corners to get the beta-strips
+
+    // Step 4: Generate lots from the strips
+    
+    // For now, return the faces as lots with random colors
+    return faces.map((face, index) => ({
+        geometry: face,
+        color: [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255] as Color,
+        id: `lot-${index}`
+    }));
+}
+
+function calculateFacesFromBlock(block: Block): Polygon[] {
     // Create a multipolygon from the polygon to match the example in app.tsx
     const multiPoly = {
         type: 'MultiPolygon',
@@ -58,12 +81,16 @@ export function generateLotsFromBlock(block: Block): Lot[] {
         }
     }
 
-    // Step 2: Calculate the alpha-strips for the skeleton faces
+    return faces;
+}
+
+function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: LogicalStreet[]
+): Map<string, Polygon[]> {
     // Alpha-strips are lists of faces that are adjacent to each logical street
     const alphaStrips = new Map<string, Polygon[]>();
     
     // Initialize alpha-strips for each bounding street
-    for (const street of block.boundingStreets) {
+    for (const street of boundingStreets) {
         alphaStrips.set(street.id, []);
     }
     
@@ -75,7 +102,7 @@ export function generateLotsFromBlock(block: Block): Lot[] {
         // Get the outer boundary coordinates of the face
         const faceCoords = face.coordinates[0]; // exterior ring
         
-        for (const street of block.boundingStreets) {
+        for (const street of boundingStreets) {
             let isAdjacent = false;
             
             // Check if any boundary segment of the face lies along this street
@@ -106,7 +133,7 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     
     // Log the alpha strips for debugging
     console.log('Alpha strips calculated:', {
-        totalStreets: block.boundingStreets.length,
+        totalStreets: boundingStreets.length,
         totalFaces: faces.length,
         strips: Array.from(alphaStrips.entries()).map(([streetId, faces]) => ({
             streetId,
@@ -122,16 +149,7 @@ export function generateLotsFromBlock(block: Block): Lot[] {
         console.warn(`Warning: ${faces.length - totalAssignedFaces} faces were not assigned to any alpha-strip`);
     }
 
-    // Step 3: Adjust the strips at the corners to get the beta-strips
-
-    // Step 4: Generate lots from the strips
-    
-    // For now, return the faces as lots with random colors
-    return faces.map((face, index) => ({
-        geometry: face,
-        color: [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255] as Color,
-        id: `lot-${index}`
-    }));
+    return alphaStrips;
 }
 
 /**
