@@ -33,21 +33,21 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
     // Step 4: Generate lots from the strips
-    
+    const lots = calculateLotsFromBetaStrips(betaStrips);    
 
     // Temp output to debug beta strips
-    const lots: Lot[] = [];
-    for (const [streetId, faces] of betaStrips) {
-        const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
-        for (const [index, face] of faces.entries()) {
-            const offset = index * 10;
-            lots.push({
-                geometry: face,
-                color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
-                id: `${streetId}-${lots.length}` // Unique ID for each lot
-            });
-        }
-    }
+    // const lots: Lot[] = [];
+    // for (const [streetId, faces] of betaStrips) {
+    //     const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
+    //     for (const [index, face] of faces.entries()) {
+    //         const offset = index * 10;
+    //         lots.push({
+    //             geometry: face,
+    //             color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
+    //             id: `${streetId}-${lots.length}` // Unique ID for each lot
+    //         });
+    //     }
+    // }
 
     return lots;
 }
@@ -223,13 +223,8 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         }
     }
 
-    console.log(`Found ${adjacentPairs.length} adjacent pairs of alpha strips`);
-
     // For each adjacent pair of alpha strips, calculate the corner regions
     for (const {streetId1, streetId2, sharedEdge, face1, face2, indexInStrip1, indexInStrip2} of adjacentPairs) {
-        const strip1 = alphaStrips.get(streetId1)!;
-        const strip2 = alphaStrips.get(streetId2)!;
-        
         // Calculate which street is longer to determine which strip to cut from
         const street1 = block.boundingStreets.find(street => street.id === streetId1);
         const street2 = block.boundingStreets.find(street => street.id === streetId2);
@@ -329,6 +324,8 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
     );
 }
 
+// Calculate the corner region between two faces based on their shared edge
+// This is currently too simplistic because it only handles triangular corner regions
 function calculateCornerRegion(
     sharedEdge: [number[], number[]],
     face1: Polygon,
@@ -465,3 +462,115 @@ function cutCornerRegionAndTransfer(
         console.warn("Failed to cut corner region:", error);
     }
 }
+
+function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>): Lot[] {
+    // Parameters for lot generation
+    const Wmin = 0.0005; // Minimum parcel width
+    const Wmax = 0.002;  // Maximum parcel width
+    const omega = 0.3;   // Split irregularity (0-1)
+    
+    // Step 1: Merge all beta strip faces into one polygon
+    const allFaces: Polygon[] = [];
+    for (const faces of betaStrips.values()) {
+        allFaces.push(...faces);
+    }
+    
+    if (allFaces.length === 0) {
+        return [];
+    }
+    
+    // Union all faces together
+    let mergedPolygon = allFaces[0];
+    for (let i = 1; i < allFaces.length; i++) {
+        const unionFeatureCollection = polygons([
+            mergedPolygon.coordinates,
+            allFaces[i].coordinates
+        ]);
+        const unionResult = union(unionFeatureCollection);
+        if (unionResult && unionResult.geometry.type === 'Polygon') {
+            mergedPolygon = unionResult.geometry as Polygon;
+        }
+    }
+    
+    // Step 2: Sample points along the block edge
+    const blockBoundary = mergedPolygon.coordinates[0];
+    const splitPoints = samplePointsAlongEdge(blockBoundary, Wmin, Wmax, omega);
+    
+    // Step 3: Create splitting rays and split the polygon
+    
+    return [];
+}
+
+function samplePointsAlongEdge(
+    boundary: number[][],
+    Wmin: number,
+    Wmax: number,
+    omega: number
+): Array<{point: number[], normal: number[]}> {
+    const splitPoints: Array<{point: number[], normal: number[]}> = [];
+    
+    // Calculate the mean distance and standard deviation
+    const meanDistance = (Wmin + Wmax) / 2;
+    const stdDev = Math.sqrt(3 * omega);
+    
+    let currentDistance = 0;
+    let totalEdgeLength = 0;
+    
+    // Calculate total edge length
+    for (let i = 0; i < boundary.length - 1; i++) {
+        const dx = boundary[i + 1][0] - boundary[i][0];
+        const dy = boundary[i + 1][1] - boundary[i][1];
+        totalEdgeLength += Math.sqrt(dx * dx + dy * dy);
+    }
+    
+    // Sample points along the boundary
+    let accumulatedLength = 0;
+    for (let i = 0; i < boundary.length - 1; i++) {
+        const start = boundary[i];
+        const end = boundary[i + 1];
+        const dx = end[0] - start[0];
+        const dy = end[1] - start[1];
+        const edgeLength = Math.sqrt(dx * dx + dy * dy);
+        
+        // Skip very short edges
+        if (edgeLength < 0.0001) continue;
+        
+        const edgeDirection = [dx / edgeLength, dy / edgeLength];
+        const normal = [-edgeDirection[1], edgeDirection[0]]; // Perpendicular inward normal
+        
+        // Sample points along this edge
+        while (currentDistance <= accumulatedLength + edgeLength) {
+            const t = (currentDistance - accumulatedLength) / edgeLength;
+            const point = [
+                start[0] + t * dx,
+                start[1] + t * dy
+            ];
+            
+            splitPoints.push({
+                point,
+                normal
+            });
+            
+            // Calculate next distance with normal distribution
+            let nextDistance = meanDistance;
+            if (omega > 0) {
+                // Box-Muller transform for normal distribution
+                const u1 = Math.random();
+                const u2 = Math.random();
+                const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+                nextDistance = meanDistance + stdDev * z0;
+            }
+            
+            // Clamp to valid range
+            nextDistance = Math.max(Wmin, Math.min(Wmax, nextDistance));
+            currentDistance += nextDistance;
+            
+            if (currentDistance >= totalEdgeLength) break;
+        }
+        
+        accumulatedLength += edgeLength;
+    }
+    
+    return splitPoints;
+}
+
