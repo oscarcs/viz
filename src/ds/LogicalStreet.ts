@@ -56,6 +56,23 @@ export class LogicalStreet {
         });
         return Array.from(nodes);
     }
+
+    /**
+     * Get the total length of this logical street by summing the lengths of all edges
+     */
+    getLength(): number {
+        let totalLength = 0;
+        this.edges.forEach(edge => {
+            // Calculate distance between from and to nodes
+            const dx = edge.to.coordinates[0] - edge.from.coordinates[0];
+            const dy = edge.to.coordinates[1] - edge.from.coordinates[1];
+            const edgeLength = Math.sqrt(dx * dx + dy * dy);
+            totalLength += edgeLength;
+        });
+
+        // Divide by 2 since both edge and its symmetric are in the set
+        return totalLength / 2;
+    }
     
     /**
      * Generate a random color for this street

@@ -1,4 +1,4 @@
-import { area } from "@turf/turf";
+import { area, lineString, nearestPointOnLine, intersect, union, difference, polygons, convex, featureCollection, point } from "@turf/turf";
 import { Feature, Polygon } from "geojson";
 import { StraightSkeletonBuilder } from "straight-skeleton-geojson";
 import { multipolygonDifference } from "../ds/util";
@@ -29,16 +29,27 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     // Step 2: Calculate the alpha-strips for the skeleton faces
     const alphaStrips = calculateAlphaStripsFromFaces(faces, block.boundingStreets);
 
-    // Step 3: Adjust the strips at the corners to get the beta-strips
+    // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
+    const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
     // Step 4: Generate lots from the strips
     
-    // For now, return the faces as lots with random colors
-    return faces.map((face, index) => ({
-        geometry: face,
-        color: [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255] as Color,
-        id: `lot-${index}`
-    }));
+
+    // Temp output to debug beta strips
+    const lots: Lot[] = [];
+    for (const [streetId, faces] of betaStrips) {
+        const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
+        for (const [index, face] of faces.entries()) {
+            const offset = index * 10;
+            lots.push({
+                geometry: face,
+                color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
+                id: `${streetId}-${lots.length}` // Unique ID for each lot
+            });
+        }
+    }
+
+    return lots;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -130,24 +141,6 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: Logica
             }
         }
     }
-    
-    // Log the alpha strips for debugging
-    console.log('Alpha strips calculated:', {
-        totalStreets: boundingStreets.length,
-        totalFaces: faces.length,
-        strips: Array.from(alphaStrips.entries()).map(([streetId, faces]) => ({
-            streetId,
-            faceCount: faces.length
-        })),
-        // Verify all faces are assigned
-        totalAssignedFaces: Array.from(alphaStrips.values()).reduce((sum, faces) => sum + faces.length, 0)
-    });
-
-    // Verify that all faces have been assigned to at least one strip
-    const totalAssignedFaces = Array.from(alphaStrips.values()).reduce((sum, faces) => sum + faces.length, 0);
-    if (totalAssignedFaces !== faces.length) {
-        console.warn(`Warning: ${faces.length - totalAssignedFaces} faces were not assigned to any alpha-strip`);
-    }
 
     return alphaStrips;
 }
@@ -195,4 +188,280 @@ function pointToLineDistance(point: number[], lineStart: number[], lineEnd: numb
     ];
     
     return Math.sqrt((point[0] - projection[0]) ** 2 + (point[1] - projection[1]) ** 2);
+}
+
+type AdjacentPair = {
+    streetId1: string;
+    streetId2: string;
+    sharedEdge: [number[], number[]];
+    face1: Polygon;
+    face2: Polygon;
+    indexInStrip1: number;
+    indexInStrip2: number;
+}
+
+function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): Map<string, Polygon[]> {
+    // Create a copy of alpha strips to work with
+    const betaStrips = new Map<string, Polygon[]>();
+    for (const [streetId, faces] of alphaStrips) {
+        betaStrips.set(streetId, [...faces]);
+    }
+
+    // Find adjacent alpha strips
+    const adjacentPairs: Array<AdjacentPair> = [];
+    const streetIds = Array.from(alphaStrips.keys());
+    
+    for (let i = 0; i < streetIds.length; i++) {
+        for (let j = i + 1; j < streetIds.length; j++) {
+            const strip1 = alphaStrips.get(streetIds[i])!;
+            const strip2 = alphaStrips.get(streetIds[j])!;
+            
+            const sharedEdgeInfo = findSharedEdgeBetweenStrips(streetIds[i], streetIds[j], strip1, strip2, block);
+            if (sharedEdgeInfo) {
+                adjacentPairs.push(sharedEdgeInfo);
+            }
+        }
+    }
+
+    console.log(`Found ${adjacentPairs.length} adjacent pairs of alpha strips`);
+
+    // For each adjacent pair of alpha strips, calculate the corner regions
+    for (const {streetId1, streetId2, sharedEdge, face1, face2, indexInStrip1, indexInStrip2} of adjacentPairs) {
+        const strip1 = alphaStrips.get(streetId1)!;
+        const strip2 = alphaStrips.get(streetId2)!;
+        
+        // Calculate which street is longer to determine which strip to cut from
+        const street1 = block.boundingStreets.find(street => street.id === streetId1);
+        const street2 = block.boundingStreets.find(street => street.id === streetId2);
+
+        if (!street1 || !street2) {
+            console.warn(`Street not found for IDs: ${streetId1}, ${streetId2}`);
+            continue;
+        }
+
+        const length1 = street1.getLength();
+        const length2 = street2.getLength();
+
+        if (length1 === 0 || length2 === 0) {
+            console.warn(`One of the streets has zero length: ${streetId1} (${length1}), ${streetId2} (${length2})`);
+            continue;
+        }
+
+        // Cut from the shorter street's strip to the longer street's strip
+        const cutFromFace1 = length1 < length2;
+
+        // Find the corner region between these two strips
+        const cornerRegion = calculateCornerRegion(sharedEdge, face1, face2, block, cutFromFace1);
+        
+        // Swap the corner region from one strip to the other
+        if (cornerRegion) {
+            // Add the corner region to the first beta strip for debugging
+            // betaStrips.get(streetId1)?.push(cornerRegion);
+            
+            if (cutFromFace1) {
+                cutCornerRegionAndTransfer(betaStrips, streetId1, streetId2, indexInStrip1, indexInStrip2, cornerRegion);
+            }
+            else {
+                cutCornerRegionAndTransfer(betaStrips, streetId2, streetId1, indexInStrip2, indexInStrip1, cornerRegion);                
+            }
+        }
+    }
+
+    return betaStrips;
+}
+
+function findSharedEdgeBetweenStrips(streetId1: string, streetId2: string, strip1: Polygon[], strip2: Polygon[], block: Block): AdjacentPair | null {
+    for (const [indexInStrip1, face1] of strip1.entries()) {
+        for (const [indexInStrip2, face2] of strip2.entries()) {
+            const sharedEdge = findSharedEdge(face1, face2);
+
+            if (sharedEdge) {
+                // Check if the shared edge shares a coordinate with the block polygon
+                const blockBoundary = block.polygon.geometry.coordinates[0];
+                const isEdgeOnBlock = blockBoundary.some(coord =>
+                    (coord[0] === sharedEdge[0][0] && coord[1] === sharedEdge[0][1]) ||
+                    (coord[0] === sharedEdge[1][0] && coord[1] === sharedEdge[1][1])
+                );
+                if (!isEdgeOnBlock) continue;
+
+                return {
+                    streetId1,
+                    streetId2,
+                    sharedEdge,
+                    face1,
+                    face2,
+                    indexInStrip1, 
+                    indexInStrip2
+                };
+            }
+        }
+    }
+    return null;
+}
+
+function findSharedEdge(polygon1: Polygon, polygon2: Polygon): [number[], number[]] | null {
+    const coords1 = polygon1.coordinates[0];
+    const coords2 = polygon2.coordinates[0];
+            
+    // Check each edge of polygon1 against each edge of polygon2
+    for (let i = 0; i < coords1.length - 1; i++) {
+        const edge1Start = coords1[i];
+        const edge1End = coords1[i + 1];
+        
+        for (let j = 0; j < coords2.length - 1; j++) {
+            const edge2Start = coords2[j];
+            const edge2End = coords2[j + 1];
+            
+            // Check if edges are the same (same or opposite direction)
+            if (edgesAreEqual(edge1Start, edge1End, edge2Start, edge2End)) {
+                return [edge1Start, edge1End];
+            }
+        }
+    }
+
+    return null;
+}
+
+function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2End: number[]): boolean {
+    return (
+        (e1Start[0] === e2Start[0] && e1Start[1] === e2Start[1] && e1End[0] === e2End[0] && e1End[1] === e2End[1]) ||
+        (e1Start[0] === e2End[0] && e1Start[1] === e2End[1] && e1End[0] === e2Start[0] && e1End[1] === e2Start[1])
+    );
+}
+
+function calculateCornerRegion(
+    sharedEdge: [number[], number[]],
+    face1: Polygon,
+    face2: Polygon,
+    block: Block,
+    cutFromFace1: boolean
+): Polygon | null {
+    // Find which of the points on the shared edge is not on the block polygon
+    const sharedEdgeStart = sharedEdge[0];
+    const sharedEdgeEnd = sharedEdge[1];
+    const blockBoundary = block.polygon.geometry.coordinates[0];
+    const isStartOnBlock = blockBoundary.some(coord => coord[0] === sharedEdgeStart[0] && coord[1] === sharedEdgeStart[1]);
+    const furthestPoint = isStartOnBlock ? sharedEdgeEnd : sharedEdgeStart;
+
+    let edgeToCutTo = cutFromFace1 ?
+        findSharedEdge(face1, block.polygon.geometry) :
+        findSharedEdge(face2, block.polygon.geometry); 
+
+    if (!edgeToCutTo) {
+        console.warn("No co-incident edge found for corner region cutting");
+        return null;
+    }
+
+    let closestPointOnEdgeToCutTo = nearestPointOnLine(
+        lineString([edgeToCutTo[0], edgeToCutTo[1]]),
+        furthestPoint
+    ).geometry.coordinates;
+
+    // Create a polygon that defines the corner region to be transferred
+    const points = featureCollection([
+        point(sharedEdgeStart),
+        point(sharedEdgeEnd),
+        point(closestPointOnEdgeToCutTo),
+        point(furthestPoint),
+    ]);
+
+    const convexHull = convex(points);
+    if (!convexHull || !convexHull.geometry || convexHull.geometry.type !== 'Polygon') {
+        console.warn("Could not create convex hull for corner region");
+        return null;
+    }
+
+    return convexHull.geometry as Polygon;
+}
+
+function cutCornerRegionAndTransfer(
+    betaStrips: Map<string, Polygon[]>,
+    fromStreetId: string,
+    toStreetId: string,
+    fromFaceIndex: number,
+    toFaceIndex: number,
+    cornerRegion: Polygon
+): void {
+    const fromStrip = betaStrips.get(fromStreetId);
+    const toStrip = betaStrips.get(toStreetId);
+    
+    if (!fromStrip || !toStrip || 
+        fromFaceIndex < 0 || fromFaceIndex >= fromStrip.length || 
+        toFaceIndex < 0 || toFaceIndex >= toStrip.length) {
+        return;
+    }
+
+    const fromFace = fromStrip[fromFaceIndex];
+    const toFace = toStrip[toFaceIndex];
+    
+    try {
+        // Find the shared edge between the two faces
+        const sharedEdge = findSharedEdge(fromFace, toFace);
+        if (!sharedEdge) {
+            console.warn("No shared edge found between faces for cutting");
+            return;
+        }
+        
+        // Create FeatureCollection for intersection operation
+        const intersectionFeatureCollection = polygons([
+            fromFace.coordinates,
+            cornerRegion.coordinates
+        ]);
+        
+        // Find the intersection (corner region) between the fromFace and the cutting polygon
+        const cornerRegionIntersection = intersect(intersectionFeatureCollection);
+        if (!cornerRegionIntersection) {
+            console.warn("No intersection found for corner region");
+            return;
+        }
+        
+        // Ensure we have polygon coordinates (not multipolygon)
+        let cornerCoordinates: number[][][];
+        if (cornerRegionIntersection.geometry.type === 'Polygon') {
+            cornerCoordinates = cornerRegionIntersection.geometry.coordinates;
+        }
+        else if (cornerRegionIntersection.geometry.type === 'MultiPolygon') {
+            // Take the first polygon from the multipolygon
+            cornerCoordinates = cornerRegionIntersection.geometry.coordinates[0];
+        }
+        else {
+            console.warn("Unexpected geometry type from intersection");
+            return;
+        }
+        
+        // Create FeatureCollection for difference operation
+        const differenceFeatureCollection = polygons([
+            fromFace.coordinates,
+            cornerCoordinates
+        ]);
+        
+        // Get the remaining part of fromFace after removing the corner region
+        const remainingFaceResult = difference(differenceFeatureCollection);
+        if (!remainingFaceResult) {
+            console.warn("Could not compute remaining face after corner region removal");
+            return;
+        }
+        
+        // Update the fromFace with the remaining geometry
+        fromStrip[fromFaceIndex] = remainingFaceResult.geometry as Polygon;
+        
+        // Create FeatureCollection for union operation
+        const unionFeatureCollection = polygons([
+            toFace.coordinates,
+            cornerCoordinates
+        ]);
+        
+        // Merge the corner region with the toFace using union
+        const mergedResult = union(unionFeatureCollection);
+        if (mergedResult) {
+            toStrip[toFaceIndex] = mergedResult.geometry as Polygon;
+        }
+        else {
+            console.warn("Could not merge corner region with target face");
+        }
+        
+    }
+    catch (error) {
+        console.warn("Failed to cut corner region:", error);
+    }
 }
