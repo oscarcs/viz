@@ -101,7 +101,6 @@ const renderLotTooltip = (lot: Lot, hoverInfo: PickingInfo) => {
             <div style={{ color: '#6b7280' }}>
                 <div><strong>ID:</strong> {lot.id}</div>
                 <div><strong>Vertices:</strong> {coordinates.length - 1}</div>
-                <div><strong>Color:</strong> RGB({lot.color[0]}, {lot.color[1]}, {lot.color[2]})</div>
             </div>
         </div>
     );

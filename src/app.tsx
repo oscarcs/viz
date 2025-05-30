@@ -14,6 +14,7 @@ import { InfoTooltip } from './widget/InfoTooltip';
 import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
 import { Building } from './procgen/Building';
 import { generateLotsFromBlock, Lot } from './procgen/Lots';
+import { SelectMode } from './editors/SelectMode';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -26,6 +27,7 @@ const INITIAL_VIEW_STATE = {
 function Root() {
     const [streetGraph] = React.useState<StreetGraph>(new StreetGraph());
     const [drawMode] = React.useState(() => new DrawStreetMode(streetGraph));
+    const [selectMode] = React.useState(() => new SelectMode(streetGraph));
     const [activeTool, setActiveTool] = React.useState<ToolType>('draw');
     const [hoverInfo, setHoverInfo] = React.useState<PickingInfo | null>(null);
     
@@ -33,7 +35,7 @@ function Root() {
     const [lotsData, setLotsData] = React.useState<Lot[]>([]);
     const [buildingData] = React.useState<Building[]>([]);
 
-    const currentMode = activeTool === 'draw' ? drawMode : null;
+    const currentMode = activeTool === 'draw' ? drawMode : selectMode;
 
     React.useEffect(() => {
         drawMode.setGraph(streetGraph);
@@ -45,6 +47,15 @@ function Root() {
         };
     }, [drawMode]);
 
+    const updateHoverInfo = React.useCallback((info: PickingInfo) => {
+        if (activeTool === 'select') {
+            setHoverInfo(info.object ? info : null);
+        }
+        else {
+            setHoverInfo(null);
+        }
+    }, [activeTool, setHoverInfo]);
+
     const layers = [
         new PolygonLayer<Lot>({
             id: "lots",
@@ -54,14 +65,10 @@ function Root() {
             getPolygon: (lot: Lot) => lot.geometry.coordinates[0],
             getFillColor: (lot: Lot) => lot.color,
             pickable: true,
-            onHover: (info: PickingInfo) => {
-                if (activeTool === 'select') {
-                    setHoverInfo(info.object ? info : null);
-                }
-                else {
-                    setHoverInfo(null);
-                }
-            }
+            onHover: updateHoverInfo,
+            updateTriggers: {
+                updateHoverInfo: [activeTool]
+            },
         }),
         new PolygonLayer<Building>({
             id: "buildings",
@@ -91,14 +98,7 @@ function Root() {
             pickable: true,
             selectedFeatureIndexes: [],
             editHandleType: 'point',
-            onHover: (info: PickingInfo) => {
-                if (activeTool === 'select') {
-                    setHoverInfo(info.object ? info : null);
-                }
-                else {
-                    setHoverInfo(null);
-                }
-            },
+            onHover: updateHoverInfo,
             onEdit: ({updatedData, editType}) => {
                 if (activeTool === 'draw' && editType !== 'addTentativePosition') {
                     streetGraph.addLineString(updatedData.features[0].geometry, { 
