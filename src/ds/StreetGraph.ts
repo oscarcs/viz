@@ -10,6 +10,7 @@ import {
     Feature,
     Polygon,
 } from "geojson";
+import { Block } from "../procgen/Lots";
 
 /**
  * Validates the geoJson.
@@ -995,7 +996,6 @@ class StreetGraph {
 
     /**
      * Returns the polygonization of a graph - the set of polygons enclosed by the edges.
-     * Note that this operation is destructive on the graph - it will remove dangles and cut edges.
      * @returns {FeatureCollection<Polygon>} - The polygonized graph
      */
     static polygonize(graph: StreetGraph): FeatureCollection<Polygon> {
@@ -1024,6 +1024,65 @@ class StreetGraph {
         });
 
         return featureCollection(shells.map((shell) => shell.toPolygon()));
+    }
+
+    /**
+     * Returns blocks; polygons with information about which logical streets bound each polygon
+     * @returns Blocks
+     */
+    static polygonizeToBlocks(graph: StreetGraph): Block[] {
+        // Create a copy to avoid modifying the original graph
+        // TODO: Figure out to handle cut edges and dangles in the original graph 
+        const graphCopy = graph.copy();
+        graphCopy.deleteDangles();
+        graphCopy.deleteCutEdges();
+
+        const holes: EdgeRing[] = [];
+        const shells: EdgeRing[] = [];
+
+        graphCopy
+            .getEdgeRings()
+            .filter((edgeRing) => edgeRing.isValid())
+            .forEach((edgeRing) => {
+                if (edgeRing.isHole()) {
+                    holes.push(edgeRing);
+                }
+                else {
+                    shells.push(edgeRing);
+                }
+            });
+
+        holes.forEach((hole) => {
+            if (EdgeRing.findEdgeRingContaining(hole, shells)) {
+                shells.push(hole);
+            }
+        });
+
+        // For each shell, determine which logical streets bound it
+        return shells.map((shell) => {
+            const boundingStreets = new Set<LogicalStreet>();
+            
+            // Go through each edge in the ring and find its logical street
+            shell.forEach((edge) => {
+                // Find the corresponding edge in the original graph by coordinates
+                const originalEdge = graph.edges.find(originalEdge => 
+                    (originalEdge.from.id === edge.from.id && originalEdge.to.id === edge.to.id) ||
+                    (originalEdge.from.id === edge.to.id && originalEdge.to.id === edge.from.id)
+                );
+                
+                if (originalEdge) {
+                    const logicalStreet = graph.findLogicalStreetForEdge(originalEdge);
+                    if (logicalStreet) {
+                        boundingStreets.add(logicalStreet);
+                    }
+                }
+            });
+
+            return {
+                polygon: shell.toPolygon(),
+                boundingStreets: Array.from(boundingStreets)
+            };
+        });
     }
 
     /**

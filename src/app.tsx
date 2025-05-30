@@ -106,14 +106,12 @@ function Root() {
                     });
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
-                    const blocks = StreetGraph.polygonize(streetGraph.copy());
+                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
                     const lots: Lot[] = [];
                     
-                    if (blocks) {
-                        for (const block of blocks.features) {
-                            const generatedLots = generateLotsFromBlock(block.geometry);
-                            lots.push(...generatedLots);
-                        }
+                    for (const block of blocks) {
+                        const generatedLots = generateLotsFromBlock(block);
+                        lots.push(...generatedLots);
                     }
 
                     setLotsData(lots);
