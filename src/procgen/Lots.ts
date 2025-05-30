@@ -1,7 +1,7 @@
 import { area, lineString, nearestPointOnLine, intersect, union, difference, polygons, convex, featureCollection, point } from "@turf/turf";
 import { Feature, Polygon } from "geojson";
 import { StraightSkeletonBuilder } from "straight-skeleton-geojson";
-import { multipolygonDifference } from "../ds/util";
+import { multipolygonDifference } from "../util/util";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import { Color } from "deck.gl";
 

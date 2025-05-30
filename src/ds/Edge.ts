@@ -1,5 +1,5 @@
 import { lineString } from "@turf/turf";
-import { orientationIndex } from "./util";
+import { orientationIndex } from "../util/util";
 import { Node } from "./Node";
 import { EdgeRing } from "./EdgeRing";
 

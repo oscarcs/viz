@@ -1,4 +1,4 @@
-import { orientationIndex } from "./util";
+import { orientationIndex } from "../util/util";
 import { Edge } from "./Edge";
 
 /**

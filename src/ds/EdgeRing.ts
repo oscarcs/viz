@@ -4,7 +4,7 @@ import {
     envelopeIsEqual,
     envelopeContains,
     coordinatesEqual,
-} from "./util";
+} from "../util/util";
 import { Edge } from "./Edge";
 import { multiPoint, polygon, point, envelope, booleanPointInPolygon } from "@turf/turf";
 
