@@ -33,21 +33,21 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
     // Step 4: Generate lots from the strips
-    const lots = calculateLotsFromBetaStrips(betaStrips);    
+    // const lots = calculateLotsFromBetaStrips(betaStrips);    
 
-    // Temp output to debug beta strips
-    // const lots: Lot[] = [];
-    // for (const [streetId, faces] of betaStrips) {
-    //     const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
-    //     for (const [index, face] of faces.entries()) {
-    //         const offset = index * 10;
-    //         lots.push({
-    //             geometry: face,
-    //             color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
-    //             id: `${streetId}-${lots.length}` // Unique ID for each lot
-    //         });
-    //     }
-    // }
+    //Temp output to debug beta strips
+    const lots: Lot[] = [];
+    for (const [streetId, faces] of betaStrips) {
+        const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
+        for (const [index, face] of faces.entries()) {
+            const offset = index * 10;
+            lots.push({
+                geometry: face,
+                color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
+                id: `${streetId}-${lots.length}` // Unique ID for each lot
+            });
+        }
+    }
 
     return lots;
 }
