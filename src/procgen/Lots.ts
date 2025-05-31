@@ -48,21 +48,33 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     // Step 4: Generate lots from the strips
     const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
 
-    //Temp output to debug beta strips
-    // const lots: Lot[] = [];
-    // for (const [streetId, faces] of betaStrips) {
-    //     const color = [Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), Math.floor(Math.random() * 200), 255] as Color;
-    //     for (const [index, face] of faces.entries()) {
-    //         const offset = index * 10;
-    //         lots.push({
-    //             geometry: face,
-    //             color: [color[0] + offset, color[1] + offset, color[2] + offset, color[3]] as Color,
-    //             id: `${streetId}-${lots.length}` // Unique ID for each lot
-    //         });
-    //     }
-    // }
+    // Temp output to debug beta strips
+    const tempLots: Lot[] = [];
+    for (const [streetId, faces] of betaStrips) {
+        const color = [
+            Math.floor(Math.random() * 200),
+            Math.floor(Math.random() * 200),
+            Math.floor(Math.random() * 200),
+            255
+        ] as Color;
+        
+        for (const [index, face] of faces.entries()) {
+            const offset = index * 10;
+            tempLots.push({
+                geometry: face,
+                color: [
+                    color[0] + offset,
+                    color[1] + offset,
+                    color[2] + offset,
+                    color[3]
+                ] as Color,
+                id: `${streetId}-${lots.length}` // Unique ID for each lot
+            });
+        }
+    }
+    return tempLots;
 
-    return lots;
+    // return lots;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -553,43 +565,48 @@ function calculateSplittingRaysAlongBetaStripStreet(
     const polygonBoundary = mergedPolygon.coordinates[0];
     const tolerance = 0.0001;
     
-    // Find co-incident edges between the polygon and the street
-    const coincidentEdges: Array<{
+    const subsegmentEdges: Array<{
         polygonEdge: [number[], number[]],
         length: number
     }> = [];
     
-    for (const edge of logicalStreet.edges) {
-        const streetStart = edge.from.coordinates;
-        const streetEnd = edge.to.coordinates;
-        
-        // Check each polygon edge for coincidence with this street edge
-        for (let i = 0; i < polygonBoundary.length - 1; i++) {
-            const polyStart = polygonBoundary[i];
-            const polyEnd = polygonBoundary[i + 1];
+    // Check each polygon edge to see if it's a subsegment of the logical street edges
+    for (let i = 0; i < polygonBoundary.length - 1; i++) {
+        const polyStart = polygonBoundary[i];
+        const polyEnd = polygonBoundary[i + 1];
+
+        for (const edge of logicalStreet.edges) {
+            const streetStart = edge.from.coordinates;
+            const streetEnd = edge.to.coordinates;
             
-            // Check if the polygon edge is close to and aligned with the street edge
-            if (isEdgeCoincident(polyStart, polyEnd, streetStart, streetEnd, tolerance)) {
+            if (isEdgeSubsegment(polyStart, polyEnd, streetStart, streetEnd, tolerance)) {
                 const edgeLength = Math.sqrt(
                     (polyEnd[0] - polyStart[0]) ** 2 + (polyEnd[1] - polyStart[1]) ** 2
                 );
-                coincidentEdges.push({
+
+                subsegmentEdges.push({
                     polygonEdge: [polyStart, polyEnd],
                     length: edgeLength
                 });
+
+                break;
             }
         }
     }
-    
-    if (coincidentEdges.length === 0) {
+
+    console.log(`mergedPolygon has ${polygonBoundary.length - 1} edges.`);
+    console.log(`Found ${subsegmentEdges.length} co-incident edges between polygon and logical street: ${logicalStreet.id}`);
+    console.log(subsegmentEdges.map(x => JSON.stringify(x.polygonEdge)).join('\n\n'));
+
+    if (subsegmentEdges.length === 0) {
         return rays;
     }
     
-    // Generate splitting points along co-incident edges
+    // Generate splitting points along subsegment edges
     const meanDistance = (Wmin + Wmax) / 2;
     const variance = 3 * omega;
     
-    for (const { polygonEdge } of coincidentEdges) {
+    for (const { polygonEdge } of subsegmentEdges) {
         const edgeStart = polygonEdge[0];
         const edgeEnd = polygonEdge[1];
         const edgeLength = Math.sqrt(
@@ -628,7 +645,7 @@ function calculateSplittingRaysAlongBetaStripStreet(
 /**
  * Check if two edges are coincident (overlapping or very close)
  */
-function isEdgeCoincident(
+function isEdgeSubsegment(
     edge1Start: number[],
     edge1End: number[],
     edge2Start: number[],
@@ -643,7 +660,6 @@ function isEdgeCoincident(
     const start2ToEdge1 = pointToLineDistance(edge2Start, edge1Start, edge1End);
     const end2ToEdge1 = pointToLineDistance(edge2End, edge1Start, edge1End);
     
-    // Edges are coincident if they overlap and are close to each other
     return (start1ToEdge2 < tolerance && end1ToEdge2 < tolerance) ||
            (start2ToEdge1 < tolerance && end2ToEdge1 < tolerance);
 }
