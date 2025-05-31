@@ -1,4 +1,4 @@
-import { Feature, Polygon } from "geojson";
+import { Feature, LineString, Polygon } from "geojson";
 import { 
     area, 
     lineString, 
@@ -483,7 +483,7 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
     // Split irregularity (0-1)
     const omega = 0.1;
     
-    // Step 1: For each beta strip, merge the polygons into a single block polygon
+    // Step 1: For each beta strip, merge the polygons into a single polygon
     const mergedPolygons: Map<string, Polygon> = new Map();
     for (const [streetId, faces] of betaStrips) {
 
@@ -505,7 +505,7 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
     }
 
     const lots: Lot[] = [];
-    // for (const mergedPolygon of mergedPolygons) {
+    // for (const [streetId, mergedPolygon] of mergedPolygons) {
     //     lots.push({
     //         geometry: mergedPolygon,
     //         color: [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255] as Color,
@@ -515,12 +515,123 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
     // return lots;
 
     for (const [streetId, mergedPolygon] of mergedPolygons) {
-        // Step 2: Sample points along the merged polygon boundary co-incident with the beta strip street
-        
-        // Step 3: Create splitting rays perpendicular to the street at the sampled points
+        const street = boundingStreets.find(street => street.id === streetId);
 
-        // Step 4: Split the polygon into lots based on the splitting rays
+        if (!street) {
+            console.warn(`Street with ID ${streetId} not found in bounding streets.`);
+            continue;
+        }
+
+        const rays = calculateSplittingRaysAlongBetaStripStreet(
+            mergedPolygon,
+            street,
+            Wmin,
+            Wmax,
+            omega
+        );
+
+        lots.push(...splitPolygonIntoLots(mergedPolygon, street, rays));
     }
     
     return lots;
 }
+
+/**
+ * Calculate splitting rays along the part of the street that has co-incident edges with the mergedPolygon.
+ * Rays are perpendicular to the closest edge and cut the merged polygon into lots.
+ * The distance between the points is normally distributed around (Wmin + Wmax)/2, with σ2 = 3ω.
+ * Wmin is the min lot width, Wmax is the max lot width.
+ */
+function calculateSplittingRaysAlongBetaStripStreet(
+    mergedPolygon: Polygon,
+    logicalStreet: LogicalStreet,
+    Wmin: number,
+    Wmax: number,
+    omega: number
+): LineString[] {
+    const rays: LineString[] = [];
+    
+    return rays;
+}
+
+/**
+ * Split the merged polygon into lots based on the calculated rays.
+ */
+function splitPolygonIntoLots(
+    mergedPolygon: Polygon,
+    logicalStreet: LogicalStreet,
+    rays: LineString[]
+): Lot[] {
+    const lots: Lot[] = [];
+    
+    if (rays.length === 0) {
+        // If no rays, return the whole polygon as a single lot
+        lots.push({
+            geometry: mergedPolygon,
+            color: logicalStreet.color,
+            id: `${logicalStreet.id}-lot-0`
+        });
+        return lots;
+    }
+    
+    // Start with the original merged polygon
+    let currentPolygons: Polygon[] = [mergedPolygon];
+    
+    // Apply each ray to split the polygons
+    for (let rayIndex = 0; rayIndex < rays.length; rayIndex++) {
+        const ray = rays[rayIndex];
+        const newPolygons: Polygon[] = [];
+        
+        // Split each current polygon with this ray
+        for (const polygon of currentPolygons) {
+            try {
+                // Use polygonSlice to split the polygon with the ray
+                const sliceResult = polygonSlice(feature(polygon), feature(ray));
+                
+                if (sliceResult && sliceResult.features && sliceResult.features.length > 0) {
+                    // Add all resulting polygons
+                    for (const slicedFeature of sliceResult.features) {
+                        if (slicedFeature.geometry.type === 'Polygon') {
+                            newPolygons.push(slicedFeature.geometry);
+                        }
+                    }
+                }
+                else {
+                    // If slicing failed, keep the original polygon
+                    newPolygons.push(polygon);
+                }
+            }
+            catch (error) {
+                console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
+                // Keep the original polygon if slicing fails
+                newPolygons.push(polygon);
+            }
+        }
+        
+        currentPolygons = newPolygons;
+    }
+    
+    // Convert the final polygons to Lot objects
+    for (let i = 0; i < currentPolygons.length; i++) {
+        const polygon = currentPolygons[i];
+        
+        // Calculate a slight color variation for each lot
+        const baseColor = logicalStreet.color;
+        const colorVariation = (i * 20) % 100; // Small variation
+        const lotColor: Color = [
+            Math.min(255, baseColor[0] + colorVariation),
+            Math.min(255, baseColor[1] + colorVariation),
+            Math.min(255, baseColor[2] + colorVariation),
+            baseColor[3]
+        ];
+        
+        lots.push({
+            geometry: polygon,
+            color: lotColor,
+            id: `${logicalStreet.id}-lot-${i}`
+        });
+    }
+    
+    return lots;
+}
+
