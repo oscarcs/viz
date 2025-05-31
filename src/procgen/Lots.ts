@@ -484,7 +484,6 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
     // Split irregularity (0-1)
     const omega = 1;
     
-    // Step 1: For each beta strip, merge the polygons into a single polygon
     const mergedPolygons: Map<string, Polygon> = new Map();
     for (const [streetId, faces] of betaStrips) {
 
@@ -533,8 +532,8 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
 
         lots.push(...splitPolygonIntoLots(mergedPolygon, street, rays));
     }
-    
-    return lots;
+
+    return lots.filter(lot => lot.geometry && lot.geometry.coordinates.length > 0 && area(lot.geometry) > 1000);
 }
 
 /**
