@@ -10,7 +10,8 @@ import {
     convex, 
     featureCollection, 
     point,
-    feature
+    feature,
+    cleanCoords
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
@@ -681,8 +682,10 @@ function createPerpendicularRay(
     
     const normalizedPerp = [perpDir[0] / perpLength, perpDir[1] / perpLength];
     
+    // TODO: The ray length needs to be the same as the offset distance used in the skeleton 
+    const rayLength = 0.01;
+ 
     // Extend the ray in both directions to ensure it crosses the polygon
-    const rayLength = 0.01; // Adjust based on typical polygon size
     const rayEnd1 = [
         point[0] + normalizedPerp[0] * rayLength,
         point[1] + normalizedPerp[1] * rayLength
@@ -694,7 +697,10 @@ function createPerpendicularRay(
     
     // Create ray from one end to the other, passing through the point
     const rayFeature = lineString([rayEnd1, rayEnd2]);
-    return rayFeature.geometry;
+    
+    // Clean coordinates to remove any duplicate consecutive points
+    const cleanedRay = cleanCoords(rayFeature);
+    return cleanedRay.geometry;
 }
 
 /**
@@ -745,7 +751,11 @@ function splitPolygonIntoLots(
                 }
             }
             catch (error) {
-                console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
+                // TODO: Debug the slicing errors
+                // console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
+                // console.log("Original polygon:", JSON.stringify(polygon.coordinates));
+                // console.log("Ray:", JSON.stringify(ray.coordinates));
+
                 // Keep the original polygon if slicing fails
                 newPolygons.push(polygon);
             }
