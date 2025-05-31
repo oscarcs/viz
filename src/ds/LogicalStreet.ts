@@ -1,5 +1,6 @@
 import { Edge } from "./Edge";
 import { Node } from "./Node";
+import { feature, length } from "@turf/turf";
 
 /**
  * Represents a logical street - a collection of connected road segments
@@ -72,6 +73,25 @@ export class LogicalStreet {
 
         // Divide by 2 since both edge and its symmetric are in the set
         return totalLength / 2;
+    }
+
+    /**
+     * Get the total length of this logical street in meters using Turf.js
+     * This assumes the coordinates are in a geographic coordinate system (lat/lon)
+     */
+    getLengthInMeters(): number {
+        const edgesArray = Array.from(this.edges);
+        if (edgesArray.length === 0) return 0;
+       
+        const coordinates = edgesArray
+            .map(edge => [edge.from.coordinates, edge.to.coordinates])
+            .flat();
+        
+        const lineString = feature({
+            type: "LineString",
+            coordinates: coordinates
+        });
+        return length(lineString, { units: 'meters' }) / 2;
     }
     
     /**

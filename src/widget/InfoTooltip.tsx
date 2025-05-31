@@ -2,6 +2,7 @@ import React from 'react';
 import { PickingInfo } from '@deck.gl/core';
 import StreetGraph from '../ds/StreetGraph';
 import { Lot } from '../procgen/Lots';
+import { area } from '@turf/turf';
 
 interface InfoTooltipProps {
     hoverInfo: PickingInfo;
@@ -32,6 +33,7 @@ const renderStreetTooltip = (hoverInfo: PickingInfo, streetGraph: StreetGraph) =
 
     const edgeCount = street.edges.size / 2;
     const nodeCount = street.getNodes().length;
+    const length = street.getLengthInMeters();
 
     const tooltipStyle: React.CSSProperties = {
         position: 'absolute',
@@ -62,6 +64,7 @@ const renderStreetTooltip = (hoverInfo: PickingInfo, streetGraph: StreetGraph) =
             <div style={{ color: '#6b7280' }}>
                 <div><strong>ID:</strong> {street.id}</div>
                 <div><strong>Name:</strong> {street.name || 'Unnamed'}</div>
+                <div><strong>Length:</strong> {length.toFixed(2)} m</div>
                 <div><strong>Segments:</strong> {edgeCount}</div>
                 <div><strong>Intersections:</strong> {nodeCount}</div>
             </div>
@@ -71,6 +74,7 @@ const renderStreetTooltip = (hoverInfo: PickingInfo, streetGraph: StreetGraph) =
 
 const renderLotTooltip = (lot: Lot, hoverInfo: PickingInfo) => {
     const coordinates = lot.geometry.coordinates[0];
+    const lotArea = area(lot.geometry);
 
     const tooltipStyle: React.CSSProperties = {
         position: 'absolute',
@@ -101,6 +105,7 @@ const renderLotTooltip = (lot: Lot, hoverInfo: PickingInfo) => {
             <div style={{ color: '#6b7280' }}>
                 <div><strong>ID:</strong> {lot.id}</div>
                 <div><strong>Vertices:</strong> {coordinates.length - 1}</div>
+                <div><strong>Area:</strong> {(lotArea).toFixed(2)} m²</div>
             </div>
         </div>
     );
