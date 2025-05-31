@@ -477,11 +477,11 @@ function cutCornerRegionAndTransfer(
 
 function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundingStreets: LogicalStreet[]): Lot[] {
     // Minimum parcel width
-    const Wmin = 0.0001;
+    const Wmin = 0.0004;
     // Maximum parcel width
-    const Wmax = 0.0001;
+    const Wmax = 0.0004;
     // Split irregularity (0-1)
-    const omega = 0.1;
+    const omega = 1;
     
     // Step 1: For each beta strip, merge the polygons into a single polygon
     const mergedPolygons: Map<string, Polygon> = new Map();
@@ -538,9 +538,9 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
 
 /**
  * Calculate splitting rays along the part of the street that has co-incident edges with the mergedPolygon.
- * Rays are perpendicular to the closest edge and cut the merged polygon into lots.
- * The distance between the points is normally distributed around (Wmin + Wmax)/2, with σ2 = 3ω.
- * Wmin is the min lot width, Wmax is the max lot width.
+ * First we generate points along the co-incident edges, normally distributed around (Wmin + Wmax)/2, with σ2 = 3ω.
+ * Wmin is the min distance between points, Wmax is the max distance between points.
+ * Then we generate rays from these perpendicular to the street.
  */
 function calculateSplittingRaysAlongBetaStripStreet(
     mergedPolygon: Polygon,
@@ -550,8 +550,151 @@ function calculateSplittingRaysAlongBetaStripStreet(
     omega: number
 ): LineString[] {
     const rays: LineString[] = [];
+    const polygonBoundary = mergedPolygon.coordinates[0];
+    const tolerance = 0.0001;
+    
+    // Find co-incident edges between the polygon and the street
+    const coincidentEdges: Array<{
+        polygonEdge: [number[], number[]],
+        length: number
+    }> = [];
+    
+    for (const edge of logicalStreet.edges) {
+        const streetStart = edge.from.coordinates;
+        const streetEnd = edge.to.coordinates;
+        
+        // Check each polygon edge for coincidence with this street edge
+        for (let i = 0; i < polygonBoundary.length - 1; i++) {
+            const polyStart = polygonBoundary[i];
+            const polyEnd = polygonBoundary[i + 1];
+            
+            // Check if the polygon edge is close to and aligned with the street edge
+            if (isEdgeCoincident(polyStart, polyEnd, streetStart, streetEnd, tolerance)) {
+                const edgeLength = Math.sqrt(
+                    (polyEnd[0] - polyStart[0]) ** 2 + (polyEnd[1] - polyStart[1]) ** 2
+                );
+                coincidentEdges.push({
+                    polygonEdge: [polyStart, polyEnd],
+                    length: edgeLength
+                });
+            }
+        }
+    }
+    
+    if (coincidentEdges.length === 0) {
+        return rays;
+    }
+    
+    // Generate splitting points along co-incident edges
+    const meanDistance = (Wmin + Wmax) / 2;
+    const variance = 3 * omega;
+    
+    for (const { polygonEdge } of coincidentEdges) {
+        const edgeStart = polygonEdge[0];
+        const edgeEnd = polygonEdge[1];
+        const edgeLength = Math.sqrt(
+            (edgeEnd[0] - edgeStart[0]) ** 2 + (edgeEnd[1] - edgeStart[1]) ** 2
+        );
+        
+        // Generate points along this edge
+        let currentDistance = 0;
+        
+        while (currentDistance < edgeLength) {
+            // Generate normally distributed spacing
+            const spacing = Math.max(Wmin, Math.min(Wmax, 
+                normalRandom(meanDistance, variance)
+            ));
+            
+            currentDistance += spacing;
+            
+            if (currentDistance >= edgeLength) break;
+            
+            // Calculate point position along the edge
+            const t = currentDistance / edgeLength;
+            const pointX = edgeStart[0] + t * (edgeEnd[0] - edgeStart[0]);
+            const pointY = edgeStart[1] + t * (edgeEnd[1] - edgeStart[1]);
+            
+            // Create perpendicular ray from this point
+            const ray = createPerpendicularRay([pointX, pointY], edgeStart, edgeEnd);
+            if (ray) {
+                rays.push(ray);
+            }
+        }
+    }
     
     return rays;
+}
+
+/**
+ * Check if two edges are coincident (overlapping or very close)
+ */
+function isEdgeCoincident(
+    edge1Start: number[],
+    edge1End: number[],
+    edge2Start: number[],
+    edge2End: number[],
+    tolerance: number
+): boolean {
+    // Check if both endpoints of edge1 are close to edge2
+    const start1ToEdge2 = pointToLineDistance(edge1Start, edge2Start, edge2End);
+    const end1ToEdge2 = pointToLineDistance(edge1End, edge2Start, edge2End);
+    
+    // Check if both endpoints of edge2 are close to edge1
+    const start2ToEdge1 = pointToLineDistance(edge2Start, edge1Start, edge1End);
+    const end2ToEdge1 = pointToLineDistance(edge2End, edge1Start, edge1End);
+    
+    // Edges are coincident if they overlap and are close to each other
+    return (start1ToEdge2 < tolerance && end1ToEdge2 < tolerance) ||
+           (start2ToEdge1 < tolerance && end2ToEdge1 < tolerance);
+}
+
+/**
+ * Generate a normally distributed random number using Box-Muller transform
+ */
+function normalRandom(mean: number, variance: number): number {
+    const u1 = Math.random();
+    const u2 = Math.random();
+    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+    return mean + Math.sqrt(variance) * z0;
+}
+
+/**
+ * Create a perpendicular ray from a point on an edge, extending into the polygon
+ */
+function createPerpendicularRay(
+    point: number[],
+    edgeStart: number[],
+    edgeEnd: number[]
+): LineString | null {
+    // Calculate edge direction vector
+    const edgeDir = [
+        edgeEnd[0] - edgeStart[0],
+        edgeEnd[1] - edgeStart[1]
+    ];
+    
+    // Calculate perpendicular vector (rotate 90 degrees)
+    const perpDir = [-edgeDir[1], edgeDir[0]];
+    
+    // Normalize the perpendicular vector
+    const perpLength = Math.sqrt(perpDir[0] * perpDir[0] + perpDir[1] * perpDir[1]);
+    if (perpLength === 0) return null;
+    
+    const normalizedPerp = [perpDir[0] / perpLength, perpDir[1] / perpLength];
+    
+    // Extend the ray in both directions to ensure it crosses the polygon
+    const rayLength = 0.01; // Adjust based on typical polygon size
+    const rayEnd1 = [
+        point[0] + normalizedPerp[0] * rayLength,
+        point[1] + normalizedPerp[1] * rayLength
+    ];
+    const rayEnd2 = [
+        point[0] - normalizedPerp[0] * rayLength,
+        point[1] - normalizedPerp[1] * rayLength
+    ];
+    
+    // Create ray from one end to the other, passing through the point
+    const rayFeature = lineString([rayEnd1, rayEnd2]);
+    return rayFeature.geometry;
 }
 
 /**
