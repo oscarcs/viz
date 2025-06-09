@@ -82,7 +82,28 @@ function cutPolygon(poly: Polygon, line: LineString, direction: number, id: stri
 
     const intersectPoints = lineIntersect(poly, line);
     const nPoints = intersectPoints.features.length;
-    if (nPoints === 0 || nPoints % 2 !== 0) return retVal;
+    
+    // Handle edge cases: if we have an odd number of intersections,
+    // it likely means the line starts/ends on a vertex or edge
+    if (nPoints === 0) return retVal;
+    
+    // For odd number of intersections, we can still attempt to slice
+    // by checking if the line properly crosses the polygon
+    if (nPoints % 2 !== 0) {
+        // Check if line endpoints are on polygon boundary
+        const startPoint = point(line.coordinates[0]);
+        const endPoint = point(line.coordinates[line.coordinates.length - 1]);
+        const startOnBoundary = booleanPointInPolygon(startPoint, poly, {ignoreBoundary: false}) && 
+                               !booleanPointInPolygon(startPoint, poly, {ignoreBoundary: true});
+        const endOnBoundary = booleanPointInPolygon(endPoint, poly, {ignoreBoundary: false}) && 
+                             !booleanPointInPolygon(endPoint, poly, {ignoreBoundary: true});
+        
+        // If one endpoint is on boundary and we have odd intersections, 
+        // we might still be able to slice
+        if (!(startOnBoundary || endOnBoundary)) {
+            return retVal;
+        }
+    }
 
     const thickLinePolygon = prepareDiffLinePolygon(line, direction);
 

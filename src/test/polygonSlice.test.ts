@@ -36,3 +36,34 @@ test('Slicing using a line outside the polygon returns the original polygon', ()
     expect(result.features.length).toBe(1);
     expect(result.features[0].geometry.coordinates).toEqual(square.coordinates);
 });
+
+test('Slicing a polygon where line starts on vertex should produce expected results', () => {
+    const poly: Polygon = {
+        "type": "Polygon",
+        "coordinates": [
+            [
+                [-0.0013142824174087247, -0.001038014888476776],
+                [0.0010755658148523888, -0.001013875007345267],
+                [0.0007676599797855964, -0.0007157490480706565],
+                [0.00076766, -0.00071575],
+                [-0.0010345165319078477, -0.0007339499649761527],
+                [-0.0013142824174087247, -0.001038014888476776]
+            ]
+        ]
+    };
+
+    // Line starts exactly on polygon vertex at index 2
+    const line: LineString = {
+        "type": "LineString",
+        "coordinates": [
+            [0.0007676599797855964, -0.0007157490480706565],
+            [0.0007707024585283832, -0.001016954435285667]
+        ]
+    };
+
+    const result = polygonSlice(poly, line);
+    
+    expect(result).toBeDefined();
+    expect(result.features.length).toBe(2);
+    result.features.forEach(feat => expect(feat.geometry.type).toBe('Polygon'));
+});
