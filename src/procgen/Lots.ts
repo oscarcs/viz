@@ -10,7 +10,8 @@ import {
     difference,
     booleanPointInPolygon,
     point,
-    pointToLineDistance
+    pointToLineDistance,
+    lengthToDegrees
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
@@ -48,33 +49,7 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     // Step 4: Generate lots from the strips
     const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
 
-    // Temp output to debug beta strips
-    const tempLots: Lot[] = [];
-    for (const [streetId, faces] of betaStrips) {
-        const color = [
-            Math.floor(Math.random() * 200),
-            Math.floor(Math.random() * 200),
-            Math.floor(Math.random() * 200),
-            255
-        ] as Color;
-        
-        for (const [index, face] of faces.entries()) {
-            const offset = index * 10;
-            tempLots.push({
-                geometry: face,
-                color: [
-                    color[0] + offset,
-                    color[1] + offset,
-                    color[2] + offset,
-                    color[3]
-                ] as Color,
-                id: `${streetId}-${lots.length}` // Unique ID for each lot
-            });
-        }
-    }
-    return tempLots;
-
-    // return lots;
+    return lots;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -88,7 +63,7 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
     const straightSkeleton = StraightSkeletonBuilder.buildFromGeoJSON(multiPoly as any);
     
     // Generate an offset skeleton to create a buffer between the lots and the block edge
-    const offsetDistance = 0.0003;
+    const offsetDistance = lengthToDegrees(50, 'meters');
     const straightSkeletonPolygons = straightSkeleton.toMultiPolygon();
     const offsetSkeleton = straightSkeleton.offset(offsetDistance);
 
@@ -572,10 +547,10 @@ function findClosestPointOnLineSegmentOutsideShape(
 }
 
 function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundingStreets: LogicalStreet[]): Lot[] {
-    // Minimum parcel width
-    const Wmin = 0.0004;
-    // Maximum parcel width
-    const Wmax = 0.0004;
+    // Min and max parcel widths
+    const Wmin = lengthToDegrees(20, 'meters');
+    const Wmax = lengthToDegrees(35, 'meters');
+    
     // Split irregularity (0-1)
     const omega = 1;
     
@@ -617,18 +592,12 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
             continue;
         }
 
-        const rays = calculateSplittingRaysAlongBetaStripStreet(
-            mergedPolygon,
-            street,
-            Wmin,
-            Wmax,
-            omega
-        );
+        const rays = calculateSplittingRaysAlongBetaStripStreet(mergedPolygon, street, Wmin, Wmax, omega);
 
         lots.push(...splitPolygonIntoLots(mergedPolygon, street, rays));
     }
 
-    return lots.filter(lot => lot.geometry && lot.geometry.coordinates.length > 0 && area(lot.geometry) > 1000);
+    return lots.filter(lot => lot.geometry && lot.geometry.coordinates.length > 0);
 }
 
 /**
@@ -836,9 +805,8 @@ function splitPolygonIntoLots(
             }
             catch (error) {
                 // TODO: Debug the slicing errors
-                // console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
-                // console.log("Original polygon:", JSON.stringify(polygon.coordinates));
-                // console.log("Ray:", JSON.stringify(ray.coordinates));
+                console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
+                console.log(JSON.stringify(ray, null, 2) + ",\n" + JSON.stringify(polygon, null, 2));
 
                 // Keep the original polygon if slicing fails
                 newPolygons.push(polygon);
