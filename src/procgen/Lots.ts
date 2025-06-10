@@ -1,4 +1,4 @@
-import { Feature, LineString, MultiPolygon, Polygon } from "geojson";
+import { Feature, LineString, MultiPolygon, Polygon, Position } from "geojson";
 import { 
     area, 
     lineString, 
@@ -7,7 +7,9 @@ import {
     feature,
     cleanCoords,
     simplify,
-    difference
+    difference,
+    booleanPointInPolygon,
+    point
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
@@ -440,7 +442,7 @@ function calculateTriangularRegionToCut(
         return null;
     }
 
-    const pointX = findClosestPointOnLineSegment(pointD, pointA, pointC);
+    const pointX = findClosestPointOnLineSegmentOutsideShape(pointD, pointA, pointC, block.polygon.geometry);
 
     const triangularArea: Polygon = {
         type: "Polygon",
@@ -515,30 +517,81 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon[]>, re
 
 /**
  * Find the closest point on a line segment to a given point
+ * The calculated point should be outside the shape defined by the line segment.
  */
-function findClosestPointOnLineSegment(
-    point: number[], 
+function findClosestPointOnLineSegmentOutsideShape(
+    sourcePoint: number[], 
     lineStart: number[], 
-    lineEnd: number[]
+    lineEnd: number[],
+    outsideShape: Polygon
 ): number[] {
     const dx = lineEnd[0] - lineStart[0];
     const dy = lineEnd[1] - lineStart[1];
     
     if (dx === 0 && dy === 0) {
-        // Line segment is actually a point, return that point
         return lineStart;
     }
     
     // Calculate the parameter t for the closest point on the line
     const t = Math.max(0, Math.min(1, 
-        ((point[0] - lineStart[0]) * dx + (point[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
+        ((sourcePoint[0] - lineStart[0]) * dx + (sourcePoint[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
     ));
     
-    // Calculate the closest point
-    return [
+    // Calculate the initial closest point
+    let closestPoint = [
         lineStart[0] + t * dx,
         lineStart[1] + t * dy
     ];
+    
+    // Check if the point is inside the polygon
+    const pointFeature = point(closestPoint);
+    const shapeFeature = feature(outsideShape);
+    
+    if (!booleanPointInPolygon(pointFeature, shapeFeature)) {
+        return closestPoint;
+    }
+    
+    // Strategy: Move perpendicular to the line segment to get outside
+    const segmentLength = Math.sqrt(dx * dx + dy * dy);
+    if (segmentLength === 0) {
+        return lineStart;
+    }
+    
+    // Calculate perpendicular directions (both sides)
+    const perpX = -dy / segmentLength;
+    const perpY = dx / segmentLength;
+    
+    const epsilon = 0.00001;
+    const maxSteps = 50;
+    
+    // Try moving in both perpendicular directions
+    for (let step = 1; step <= maxSteps; step++) {
+        const offset = step * epsilon;
+        // console.log(`Trying step ${step} with offset ${offset}`);
+        
+        // Try positive perpendicular direction
+        const testPoint1: Position = [
+            closestPoint[0] + perpX * offset,
+            closestPoint[1] + perpY * offset
+        ];
+
+        if (!booleanPointInPolygon(point(testPoint1), shapeFeature)) {
+            return testPoint1;
+        }
+        
+        // Try negative perpendicular direction
+        const testPoint2 = [
+            closestPoint[0] - perpX * offset,
+            closestPoint[1] - perpY * offset
+        ];
+        
+        if (!booleanPointInPolygon(point(testPoint2), shapeFeature)) {
+            return testPoint2;
+        }
+    }
+    
+    console.warn('Beta strip X-point calculation: Could not find a point outside the polygon');
+    return closestPoint;
 }
 
 function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundingStreets: LogicalStreet[]): Lot[] {
