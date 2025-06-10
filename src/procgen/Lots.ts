@@ -9,13 +9,15 @@ import {
     simplify,
     difference,
     booleanPointInPolygon,
-    point
+    point,
+    pointToLineDistance
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
 import { LogicalStreet } from '../ds/LogicalStreet';
 import { StraightSkeletonBuilder } from "straight-skeleton-geojson";
 import { multipolygonDifference } from "../util/util";
+import { normalRandom } from "../util/random";
 
 export type Block = {
     polygon: Feature<Polygon>;
@@ -153,7 +155,8 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: Logica
                     const faceEnd = faceCoords[i + 1];
                     
                     // Check if this face edge segment is close to and aligned with the street edge
-                    if (isSegmentAdjacentToStreetEdge(faceStart, faceEnd, streetStart, streetEnd)) {
+                    const prospectiveStreetLine: Feature<LineString> = lineString([streetStart, streetEnd]);
+                    if (isSegmentAdjacentToStreetEdge(faceStart, faceEnd, prospectiveStreetLine)) {
                         isAdjacent = true;
                         break;
                     }
@@ -178,42 +181,17 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: Logica
 function isSegmentAdjacentToStreetEdge(
     faceStart: number[], 
     faceEnd: number[], 
-    streetStart: number[], 
-    streetEnd: number[]
+    streetLine: Feature<LineString>,
 ): boolean {
     const tolerance = 0.0001; // Tolerance for coordinate proximity
     
     // Check if the face segment endpoints are on or very close to the street edge
-    const startDistanceToStreet = pointToLineDistance(faceStart, streetStart, streetEnd);
-    const endDistanceToStreet = pointToLineDistance(faceEnd, streetStart, streetEnd);
+    const startDistanceToStreet = pointToLineDistance(faceStart, streetLine, { units: 'degrees' });
+    const endDistanceToStreet = pointToLineDistance(faceEnd, streetLine, { units: 'degrees' });
     
     // If both endpoints of the face segment are close to the street edge, 
     // then the face segment is adjacent to the street
     return (startDistanceToStreet < tolerance && endDistanceToStreet < tolerance);
-}
-
-/**
- * Calculate the distance from a point to a line segment
- */
-function pointToLineDistance(point: number[], lineStart: number[], lineEnd: number[]): number {
-    const dx = lineEnd[0] - lineStart[0];
-    const dy = lineEnd[1] - lineStart[1];
-    
-    if (dx === 0 && dy === 0) {
-        // Line segment is actually a point
-        return Math.sqrt((point[0] - lineStart[0]) ** 2 + (point[1] - lineStart[1]) ** 2);
-    }
-    
-    const t = Math.max(0, Math.min(1, 
-        ((point[0] - lineStart[0]) * dx + (point[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
-    ));
-    
-    const projection = [
-        lineStart[0] + t * dx,
-        lineStart[1] + t * dy
-    ];
-    
-    return Math.sqrt((point[0] - projection[0]) ** 2 + (point[1] - projection[1]) ** 2);
 }
 
 type AdjacentPair = {
@@ -494,9 +472,8 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon[]>, re
 
             // Add the region to the target polygon using union
             const toPolygon = toStrip[toIndex];
-            const toFeature = feature(toPolygon);
             
-            const unionResult = union(featureCollection([toFeature, regionFeature]));
+            const unionResult = union(featureCollection([feature(toPolygon), regionFeature]));
             
             if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
                 // Update the to polygon with the result of the union operation
@@ -755,25 +732,15 @@ function isEdgeSubsegment(
     tolerance: number
 ): boolean {
     // Check if both endpoints of edge1 are close to edge2
-    const start1ToEdge2 = pointToLineDistance(edge1Start, edge2Start, edge2End);
-    const end1ToEdge2 = pointToLineDistance(edge1End, edge2Start, edge2End);
+    const start1ToEdge2 = pointToLineDistance(edge1Start, lineString([edge2Start, edge2End]), { units: 'degrees' });
+    const end1ToEdge2 = pointToLineDistance(edge1End, lineString([edge2Start, edge2End], { units: 'degrees' }));
     
     // Check if both endpoints of edge2 are close to edge1
-    const start2ToEdge1 = pointToLineDistance(edge2Start, edge1Start, edge1End);
-    const end2ToEdge1 = pointToLineDistance(edge2End, edge1Start, edge1End);
+    const start2ToEdge1 = pointToLineDistance(edge2Start, lineString([edge1Start, edge1End]), { units: 'degrees' });
+    const end2ToEdge1 = pointToLineDistance(edge2End, lineString([edge1Start, edge1End], { units: 'degrees' }));
     
     return (start1ToEdge2 < tolerance && end1ToEdge2 < tolerance) ||
            (start2ToEdge1 < tolerance && end2ToEdge1 < tolerance);
-}
-
-/**
- * Generate a normally distributed random number using Box-Muller transform
- */
-function normalRandom(mean: number, variance: number): number {
-    const u1 = Math.random();
-    const u2 = Math.random();
-    const z0 = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-    return mean + Math.sqrt(variance) * z0;
 }
 
 /**
