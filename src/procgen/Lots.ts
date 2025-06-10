@@ -1,17 +1,13 @@
-import { Feature, LineString, Polygon } from "geojson";
+import { Feature, LineString, MultiPolygon, Polygon } from "geojson";
 import { 
     area, 
     lineString, 
-    nearestPointOnLine, 
-    intersect, 
     union, 
-    difference, 
-    polygons, 
-    convex, 
     featureCollection, 
-    point,
     feature,
-    cleanCoords
+    cleanCoords,
+    simplify,
+    difference
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
@@ -79,22 +75,22 @@ export function generateLotsFromBlock(block: Block): Lot[] {
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
     // Create a multipolygon from the polygon to match the example in app.tsx
-    const multiPoly = {
+    const multiPoly: MultiPolygon = {
         type: 'MultiPolygon',
         coordinates: [block.polygon.geometry.coordinates]
     };
     
     // Build straight skeleton from the multipolygon
-    const skelly = StraightSkeletonBuilder.buildFromGeoJSON(multiPoly as any);
+    const straightSkeleton = StraightSkeletonBuilder.buildFromGeoJSON(multiPoly as any);
     
     // Generate an offset skeleton to create a buffer between the lots and the block edge
     const offsetDistance = 0.0003;
-    const skellyPolygon = skelly.toMultiPolygon();
-    const offsetSkeleton = skelly.offset(offsetDistance);
-    
+    const straightSkeletonPolygons = straightSkeleton.toMultiPolygon();
+    const offsetSkeleton = straightSkeleton.offset(offsetDistance);
+
     // Use the multipolygonDifference utility to get the contour between the skeleton and its offset
     // This gives us the basic lot shapes with some buffer from the block edge
-    const lotContour = multipolygonDifference(skellyPolygon, offsetSkeleton);
+    const lotContour = multipolygonDifference(straightSkeletonPolygons, offsetSkeleton);
     
     // Convert the multipolygon result to faces
     const faces: Polygon[] = [];
@@ -109,9 +105,12 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
                     coordinates: coords
                 };
                 
+                // Simplify the polygon to reduce edge count while preserving shape
+                const simplifiedLot = simplify(feature(lot), { tolerance: 0.00001, highQuality: true });
+                
                 // Only add lots with sufficient area (filter out tiny fragments)
-                if (area(lot) > 0.0001) {
-                    faces.push(lot);
+                if (simplifiedLot.geometry && area(simplifiedLot.geometry) > 0.0001) {
+                    faces.push(simplifiedLot.geometry as Polygon);
                 }
             }
         }
@@ -136,7 +135,7 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: Logica
     // to at least one of the bounding logical streets
     for (const face of faces) {
         // Get the outer boundary coordinates of the face
-        const faceCoords = face.coordinates[0]; // exterior ring
+        const faceCoords = face.coordinates[0];
         
         for (const street of boundingStreets) {
             let isAdjacent = false;
@@ -248,14 +247,19 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         }
     }
 
+    const regions = [];
+
     // For each adjacent pair of alpha strips, calculate the corner regions
-    for (const {streetId1, streetId2, sharedEdge, face1, face2, indexInStrip1, indexInStrip2} of adjacentPairs) {
+    for (const pair of adjacentPairs) {
+
+        console.log(pair.face1.coordinates[0].length - 1, pair.face2.coordinates[0].length - 1);
+
         // Calculate which street is longer to determine which strip to cut from
-        const street1 = block.boundingStreets.find(street => street.id === streetId1);
-        const street2 = block.boundingStreets.find(street => street.id === streetId2);
+        const street1 = block.boundingStreets.find(street => street.id === pair.streetId1);
+        const street2 = block.boundingStreets.find(street => street.id === pair.streetId2);
 
         if (!street1 || !street2) {
-            console.warn(`Street not found for IDs: ${streetId1}, ${streetId2}`);
+            console.warn(`Street not found for IDs: ${pair.streetId1}, ${pair.streetId2}`);
             continue;
         }
 
@@ -263,27 +267,82 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         const length2 = street2.getLength();
 
         if (length1 === 0 || length2 === 0) {
-            console.warn(`One of the streets has zero length: ${streetId1} (${length1}), ${streetId2} (${length2})`);
+            console.warn(`One of the streets has zero length: ${pair.streetId1} (${length1}), ${pair.streetId2} (${length2})`);
             continue;
         }
 
-        // Cut from the shorter street's strip to the longer street's strip
-        const cutFromFace1 = length1 < length2;
+        // Swap the triangular corner regions from the shorter street to the longer one
+        const swapFrom: Polygon = length1 < length2 ? pair.face1 : pair.face2;
 
-        // Find the corner region between these two strips
-        const cornerRegion = calculateCornerRegion(sharedEdge, face1, face2, block, cutFromFace1);
+        const region = calculateTriangularRegionToCut(
+            swapFrom, 
+            pair.sharedEdge, 
+            block
+        );
+
+        regions.push({
+            region,
+            fromIndex: length1 < length2 ? pair.indexInStrip1 : pair.indexInStrip2,
+            fromStreetId: length1 < length2 ? pair.streetId1 : pair.streetId2,
+            toIndex: length1 < length2 ? pair.indexInStrip2 : pair.indexInStrip1,
+            toStreetId: length1 < length2 ? pair.streetId2 : pair.streetId1
+        });
+    }
+
+    // Apply region transfers to create beta strips
+    for (const regionTransfer of regions) {
+        const { region, fromIndex, fromStreetId, toIndex, toStreetId } = regionTransfer;
         
-        // Swap the corner region from one strip to the other
-        if (cornerRegion) {
-            // Add the corner region to the first beta strip for debugging
-            // betaStrips.get(streetId1)?.push(cornerRegion);
+        // Get the current state of the strips (important for multiple transfers)
+        const fromStrip = betaStrips.get(fromStreetId);
+        const toStrip = betaStrips.get(toStreetId);
+        
+        if (!fromStrip || !toStrip) {
+            console.warn(`Strip not found for transfer: from ${fromStreetId} to ${toStreetId}`);
+            continue;
+        }
+        
+        if (fromIndex >= fromStrip.length || toIndex >= toStrip.length) {
+            console.warn(`Index out of bounds for transfer: from ${fromIndex}/${fromStrip.length} to ${toIndex}/${toStrip.length}`);
+            continue;
+        }
+
+        try {
+            // Remove the region from the source polygon using difference
+            const fromPolygon = fromStrip[fromIndex];
+            const fromFeature = feature(fromPolygon);
+            const regionFeature = feature(region);
             
-            if (cutFromFace1) {
-                cutCornerRegionAndTransfer(betaStrips, streetId1, streetId2, indexInStrip1, indexInStrip2, cornerRegion);
+            const differenceResult = difference(featureCollection([fromFeature, regionFeature]));
+            
+            if (differenceResult && differenceResult.geometry && differenceResult.geometry.type === 'Polygon') {
+                // Update the from polygon with the result of the difference operation
+                fromStrip[fromIndex] = differenceResult.geometry as Polygon;
             }
             else {
-                cutCornerRegionAndTransfer(betaStrips, streetId2, streetId1, indexInStrip2, indexInStrip1, cornerRegion);                
+                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}[${fromIndex}]`);
+                continue;
             }
+
+            // Add the region to the target polygon using union
+            const toPolygon = toStrip[toIndex];
+            const toFeature = feature(toPolygon);
+            
+            const unionResult = union(featureCollection([toFeature, regionFeature]));
+            
+            if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
+                // Update the to polygon with the result of the union operation
+                toStrip[toIndex] = unionResult.geometry as Polygon;
+            }
+            else {
+                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}[${toIndex}]`);
+                // If union failed, we should revert the difference operation
+                fromStrip[fromIndex] = fromPolygon;
+                continue;
+            } 
+        }
+        catch (error) {
+            console.warn(`Error during region transfer from ${fromStreetId}[${fromIndex}] to ${toStreetId}[${toIndex}]:`, error);
         }
     }
 
@@ -349,143 +408,119 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
     );
 }
 
-// Calculate the corner region between two faces based on their shared edge
-// This is currently too simplistic because it only handles triangular corner regions
-function calculateCornerRegion(
+/**
+ * Calculate the triangular area to cut from swapFrom (CDX), where X is the
+ * closest point on edge AC to point D.
+ * @param swapFrom The quadrilateral to swap from (ABCD)
+ * @param sharedEdge The shared edge between the two polygons (CD)
+ * @param block The block containing both polygons, including edge AC.
+ * @returns The triangular area to cut from swapFrom and transfer to swapTo.
+ */
+function calculateTriangularRegionToCut(
+    swapFrom: Polygon,
     sharedEdge: [number[], number[]],
-    face1: Polygon,
-    face2: Polygon,
-    block: Block,
-    cutFromFace1: boolean
+    block: Block
 ): Polygon | null {
-    // Find which of the points on the shared edge is not on the block polygon
-    const sharedEdgeStart = sharedEdge[0];
-    const sharedEdgeEnd = sharedEdge[1];
+    // Contains edges AC and CE, shared with swapFrom and swapTo
     const blockBoundary = block.polygon.geometry.coordinates[0];
-    const isStartOnBlock = blockBoundary.some(coord => coord[0] === sharedEdgeStart[0] && coord[1] === sharedEdgeStart[1]);
-    const furthestPoint = isStartOnBlock ? sharedEdgeEnd : sharedEdgeStart;
+    const isPointOnBoundary = (point: number[]) => blockBoundary.some(coord =>
+        coord[0] === point[0] && coord[1] === point[1]
+    );
+    
+    // Find the shared edge points C and D
+    // C should be the point on the block boundary, D should be the interior point
+    const [point1, point2] = sharedEdge;
+    let pointC: number[], pointD: number[];
 
-    let edgeToCutTo = cutFromFace1 ?
-        findSharedEdge(face1, block.polygon.geometry) :
-        findSharedEdge(face2, block.polygon.geometry); 
+    const isPoint1OnBoundary = isPointOnBoundary(point1);
+    const isPoint2OnBoundary = isPointOnBoundary(point2);
 
-    if (!edgeToCutTo) {
-        console.warn("No co-incident edge found for corner region cutting");
+    if (isPoint1OnBoundary && !isPoint2OnBoundary) {
+        pointC = point1; // On block boundary
+        pointD = point2; // Interior point
+    }
+    else if (isPoint2OnBoundary && !isPoint1OnBoundary) {
+        pointC = point2; // On block boundary
+        pointD = point1; // Interior point
+    }
+    else {
+        console.warn(`Could not determine boundary vs interior points for shared edge: ${sharedEdge}`);
         return null;
     }
 
-    let closestPointOnEdgeToCutTo = nearestPointOnLine(
-        lineString([edgeToCutTo[0], edgeToCutTo[1]]),
-        furthestPoint
-    ).geometry.coordinates;
+    let pointA: number[] | null = null;
+    let edgeAC: [number[], number[]] | null = null;
 
-    // Create a polygon that defines the corner region to be transferred
-    const points = featureCollection([
-        point(sharedEdgeStart),
-        point(sharedEdgeEnd),
-        point(closestPointOnEdgeToCutTo),
-        point(furthestPoint),
-    ]);
+    const swapFromCoords = swapFrom.coordinates[0];
 
-    const convexHull = convex(points);
-    if (!convexHull || !convexHull.geometry || convexHull.geometry.type !== 'Polygon') {
-        console.warn("Could not create convex hull for corner region");
+    // Look for an edge in swapFrom that contains pointC and has its other endpoint on the block boundary
+    for (let i = 0; i < swapFromCoords.length - 1; i++) {
+        const edgeStart = swapFromCoords[i];
+        const edgeEnd = swapFromCoords[i + 1];
+        
+        // Check if this edge contains pointC
+        const containsC = (edgeStart[0] === pointC[0] && edgeStart[1] === pointC[1]) ||
+            (edgeEnd[0] === pointC[0] && edgeEnd[1] === pointC[1]);
+        
+        if (containsC) {
+            // Determine which point is A (the other endpoint that should be on block boundary)
+            const otherPoint = (edgeStart[0] === pointC[0] && edgeStart[1] === pointC[1]) ? edgeEnd : edgeStart;
+            
+            // Check if the other point is on the block boundary
+            const isOtherPointOnBoundary = isPointOnBoundary(otherPoint);
+            
+            // Also check that this other point is not pointD (we want the AC edge, not CD edge)
+            const isNotPointD = !(otherPoint[0] === pointD[0] && otherPoint[1] === pointD[1]);
+            
+            if (isOtherPointOnBoundary && isNotPointD) {
+                pointA = otherPoint;
+                edgeAC = [pointA, pointC];
+                break;
+            }
+        }
+    }
+
+    if (!pointA || !edgeAC) {
+        console.warn(`Could not find edge AC in swapFrom polygon`);
         return null;
     }
 
-    return convexHull.geometry as Polygon;
+    const pointX = findClosestPointOnLineSegment(pointD, pointA, pointC);
+
+    const triangularArea: Polygon = {
+        type: "Polygon",
+        coordinates: [[pointC, pointD, pointX, pointC]]
+    };
+
+    return triangularArea;
 }
 
-function cutCornerRegionAndTransfer(
-    betaStrips: Map<string, Polygon[]>,
-    fromStreetId: string,
-    toStreetId: string,
-    fromFaceIndex: number,
-    toFaceIndex: number,
-    cornerRegion: Polygon
-): void {
-    const fromStrip = betaStrips.get(fromStreetId);
-    const toStrip = betaStrips.get(toStreetId);
+/**
+ * Find the closest point on a line segment to a given point
+ */
+function findClosestPointOnLineSegment(
+    point: number[], 
+    lineStart: number[], 
+    lineEnd: number[]
+): number[] {
+    const dx = lineEnd[0] - lineStart[0];
+    const dy = lineEnd[1] - lineStart[1];
     
-    if (!fromStrip || !toStrip || 
-        fromFaceIndex < 0 || fromFaceIndex >= fromStrip.length || 
-        toFaceIndex < 0 || toFaceIndex >= toStrip.length) {
-        return;
+    if (dx === 0 && dy === 0) {
+        // Line segment is actually a point, return that point
+        return lineStart;
     }
-
-    const fromFace = fromStrip[fromFaceIndex];
-    const toFace = toStrip[toFaceIndex];
     
-    try {
-        // Find the shared edge between the two faces
-        const sharedEdge = findSharedEdge(fromFace, toFace);
-        if (!sharedEdge) {
-            console.warn("No shared edge found between faces for cutting");
-            return;
-        }
-        
-        // Create FeatureCollection for intersection operation
-        const intersectionFeatureCollection = polygons([
-            fromFace.coordinates,
-            cornerRegion.coordinates
-        ]);
-        
-        // Find the intersection (corner region) between the fromFace and the cutting polygon
-        const cornerRegionIntersection = intersect(intersectionFeatureCollection);
-        if (!cornerRegionIntersection) {
-            console.warn("No intersection found for corner region");
-            return;
-        }
-        
-        // Ensure we have polygon coordinates (not multipolygon)
-        let cornerCoordinates: number[][][];
-        if (cornerRegionIntersection.geometry.type === 'Polygon') {
-            cornerCoordinates = cornerRegionIntersection.geometry.coordinates;
-        }
-        else if (cornerRegionIntersection.geometry.type === 'MultiPolygon') {
-            // Take the first polygon from the multipolygon
-            cornerCoordinates = cornerRegionIntersection.geometry.coordinates[0];
-        }
-        else {
-            console.warn("Unexpected geometry type from intersection");
-            return;
-        }
-        
-        // Create FeatureCollection for difference operation
-        const differenceFeatureCollection = polygons([
-            fromFace.coordinates,
-            cornerCoordinates
-        ]);
-        
-        // Get the remaining part of fromFace after removing the corner region
-        const remainingFaceResult = difference(differenceFeatureCollection);
-        if (!remainingFaceResult) {
-            console.warn("Could not compute remaining face after corner region removal");
-            return;
-        }
-        
-        // Update the fromFace with the remaining geometry
-        fromStrip[fromFaceIndex] = remainingFaceResult.geometry as Polygon;
-        
-        // Create FeatureCollection for union operation
-        const unionFeatureCollection = polygons([
-            toFace.coordinates,
-            cornerCoordinates
-        ]);
-        
-        // Merge the corner region with the toFace using union
-        const mergedResult = union(unionFeatureCollection);
-        if (mergedResult) {
-            toStrip[toFaceIndex] = mergedResult.geometry as Polygon;
-        }
-        else {
-            console.warn("Could not merge corner region with target face");
-        }
-        
-    }
-    catch (error) {
-        console.warn("Failed to cut corner region:", error);
-    }
+    // Calculate the parameter t for the closest point on the line
+    const t = Math.max(0, Math.min(1, 
+        ((point[0] - lineStart[0]) * dx + (point[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
+    ));
+    
+    // Calculate the closest point
+    return [
+        lineStart[0] + t * dx,
+        lineStart[1] + t * dy
+    ];
 }
 
 function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundingStreets: LogicalStreet[]): Lot[] {
@@ -552,7 +587,7 @@ function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundin
  * Calculate splitting rays along the part of the street that has co-incident edges with the mergedPolygon.
  * First we generate points along the co-incident edges, normally distributed around (Wmin + Wmax)/2, with σ2 = 3ω.
  * Wmin is the min distance between points, Wmax is the max distance between points.
- * Then we generate rays from these perpendicular to the street.
+ * Then we generate rays from these points perpendicular to the street.
  */
 function calculateSplittingRaysAlongBetaStripStreet(
     mergedPolygon: Polygon,
@@ -593,10 +628,6 @@ function calculateSplittingRaysAlongBetaStripStreet(
             }
         }
     }
-
-    console.log(`mergedPolygon has ${polygonBoundary.length - 1} edges.`);
-    console.log(`Found ${subsegmentEdges.length} co-incident edges between polygon and logical street: ${logicalStreet.id}`);
-    console.log(subsegmentEdges.map(x => JSON.stringify(x.polygonEdge)).join('\n\n'));
 
     if (subsegmentEdges.length === 0) {
         return rays;
@@ -802,4 +833,3 @@ function splitPolygonIntoLots(
     
     return lots;
 }
-
