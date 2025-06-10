@@ -224,6 +224,14 @@ type AdjacentPair = {
     indexInStrip2: number;
 }
 
+type TransferRegion = {
+    region: Polygon;
+    fromIndex: number;
+    fromStreetId: string;
+    toIndex: number;
+    toStreetId: string;
+};
+
 function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): Map<string, Polygon[]> {
     // Create a copy of alpha strips to work with
     const betaStrips = new Map<string, Polygon[]>();
@@ -247,13 +255,10 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         }
     }
 
-    const regions = [];
+    const regions: Array<TransferRegion> = [];
 
     // For each adjacent pair of alpha strips, calculate the corner regions
     for (const pair of adjacentPairs) {
-
-        console.log(pair.face1.coordinates[0].length - 1, pair.face2.coordinates[0].length - 1);
-
         // Calculate which street is longer to determine which strip to cut from
         const street1 = block.boundingStreets.find(street => street.id === pair.streetId1);
         const street2 = block.boundingStreets.find(street => street.id === pair.streetId2);
@@ -280,6 +285,11 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
             block
         );
 
+        if (!region) {
+            console.warn(`Failed to calculate triangular region for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
+            continue;
+        }
+
         regions.push({
             region,
             fromIndex: length1 < length2 ? pair.indexInStrip1 : pair.indexInStrip2,
@@ -289,62 +299,7 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         });
     }
 
-    // Apply region transfers to create beta strips
-    for (const regionTransfer of regions) {
-        const { region, fromIndex, fromStreetId, toIndex, toStreetId } = regionTransfer;
-        
-        // Get the current state of the strips (important for multiple transfers)
-        const fromStrip = betaStrips.get(fromStreetId);
-        const toStrip = betaStrips.get(toStreetId);
-        
-        if (!fromStrip || !toStrip) {
-            console.warn(`Strip not found for transfer: from ${fromStreetId} to ${toStreetId}`);
-            continue;
-        }
-        
-        if (fromIndex >= fromStrip.length || toIndex >= toStrip.length) {
-            console.warn(`Index out of bounds for transfer: from ${fromIndex}/${fromStrip.length} to ${toIndex}/${toStrip.length}`);
-            continue;
-        }
-
-        try {
-            // Remove the region from the source polygon using difference
-            const fromPolygon = fromStrip[fromIndex];
-            const fromFeature = feature(fromPolygon);
-            const regionFeature = feature(region);
-            
-            const differenceResult = difference(featureCollection([fromFeature, regionFeature]));
-            
-            if (differenceResult && differenceResult.geometry && differenceResult.geometry.type === 'Polygon') {
-                // Update the from polygon with the result of the difference operation
-                fromStrip[fromIndex] = differenceResult.geometry as Polygon;
-            }
-            else {
-                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}[${fromIndex}]`);
-                continue;
-            }
-
-            // Add the region to the target polygon using union
-            const toPolygon = toStrip[toIndex];
-            const toFeature = feature(toPolygon);
-            
-            const unionResult = union(featureCollection([toFeature, regionFeature]));
-            
-            if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
-                // Update the to polygon with the result of the union operation
-                toStrip[toIndex] = unionResult.geometry as Polygon;
-            }
-            else {
-                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}[${toIndex}]`);
-                // If union failed, we should revert the difference operation
-                fromStrip[fromIndex] = fromPolygon;
-                continue;
-            } 
-        }
-        catch (error) {
-            console.warn(`Error during region transfer from ${fromStreetId}[${fromIndex}] to ${toStreetId}[${toIndex}]:`, error);
-        }
-    }
+    moveTransferRegionsForBetaStrips(betaStrips, regions);
 
     return betaStrips;
 }
@@ -493,6 +448,69 @@ function calculateTriangularRegionToCut(
     };
 
     return triangularArea;
+}
+
+/**
+ * Move the calculated corner transfer regions between beta strips.
+ * @param betaStrips Beta strips to modify
+ * @param regions Regions to transfer between strips
+ */
+function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon[]>, regions: Array<TransferRegion>): void {
+    for (const regionTransfer of regions) {
+        const { region, fromIndex, fromStreetId, toIndex, toStreetId } = regionTransfer;
+        
+        // Get the current state of the strips (important for multiple transfers)
+        const fromStrip = betaStrips.get(fromStreetId);
+        const toStrip = betaStrips.get(toStreetId);
+        
+        if (!fromStrip || !toStrip) {
+            console.warn(`Strip not found for transfer: from ${fromStreetId} to ${toStreetId}`);
+            continue;
+        }
+        
+        if (fromIndex >= fromStrip.length || toIndex >= toStrip.length) {
+            console.warn(`Index out of bounds for transfer: from ${fromIndex}/${fromStrip.length} to ${toIndex}/${toStrip.length}`);
+            continue;
+        }
+
+        try {
+            // Remove the region from the source polygon using difference
+            const fromPolygon = fromStrip[fromIndex];
+            const fromFeature = feature(fromPolygon);
+            const regionFeature = feature(region);
+            
+            const differenceResult = difference(featureCollection([fromFeature, regionFeature]));
+            
+            if (differenceResult && differenceResult.geometry && differenceResult.geometry.type === 'Polygon') {
+                // Update the from polygon with the result of the difference operation
+                fromStrip[fromIndex] = differenceResult.geometry as Polygon;
+            }
+            else {
+                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}[${fromIndex}]`);
+                continue;
+            }
+
+            // Add the region to the target polygon using union
+            const toPolygon = toStrip[toIndex];
+            const toFeature = feature(toPolygon);
+            
+            const unionResult = union(featureCollection([toFeature, regionFeature]));
+            
+            if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
+                // Update the to polygon with the result of the union operation
+                toStrip[toIndex] = unionResult.geometry as Polygon;
+            }
+            else {
+                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}[${toIndex}]`);
+                // If union failed, we should revert the difference operation
+                fromStrip[fromIndex] = fromPolygon;
+                continue;
+            } 
+        }
+        catch (error) {
+            console.warn(`Error during region transfer from ${fromStreetId}[${fromIndex}] to ${toStreetId}[${toIndex}]:`, error);
+        }
+    }
 }
 
 /**
