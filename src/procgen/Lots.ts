@@ -1,8 +1,6 @@
 import {
     Feature,
     FeatureCollection,
-    GeoJsonProperties,
-    GeometryObject,
     LineString,
     MultiPolygon,
     Polygon
@@ -14,7 +12,6 @@ import {
     featureCollection, 
     feature,
     cleanCoords,
-    simplify,
     difference,
     booleanPointInPolygon,
     point,
@@ -116,8 +113,8 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
                     coordinates: coords
                 };
                 
-                // Simplify the polygon to reduce edge count while preserving shape
-                const simplifiedLot = simplify(feature(lot), { tolerance: 0.00001, highQuality: true });
+                // simplify(feature(lot), { tolerance: 0.00001, highQuality: true });
+                const simplifiedLot = feature(lot);
                 
                 // Only add lots with sufficient area (filter out tiny fragments)
                 if (simplifiedLot.geometry && area(simplifiedLot.geometry) > 0.0001) {
@@ -417,7 +414,7 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
 
 function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineString, block: Block): {
     region: Polygon,
-    debugInfo: FeatureCollection<GeometryObject, GeoJsonProperties>
+    debugInfo: FeatureCollection
 } | null {    
     const exteriorPoint = sharedEdge.coordinates[0];
     const interiorPoint = sharedEdge.coordinates[sharedEdge.coordinates.length - 1];
