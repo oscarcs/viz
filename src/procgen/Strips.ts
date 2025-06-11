@@ -37,21 +37,35 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
     // Step 1: Calculate the offset straight skeleton of the block
     const faces = calculateFacesFromBlock(block);
 
-    // Step 2: Calculate the alpha-strips for the skeleton faces
-    const alphaStrips = calculateAlphaStripsFromFaces(faces, block.boundingStreets);
-
-    // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
-    const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
-
-    const strips = new Map<string, Strip>();
-    for (const [streetId, polygon] of betaStrips) {
-        strips.set(streetId, {
-            polygon: polygon,
+    if (faces.length === 1) {
+        // Special case: this is not a perimeter block; we handle it differently
+        
+        //TODO: actually make this work
+        const singleStrip: Strip = {
+            polygon: faces[0],
             block: block
-        });
+        };
+        return new Map([[block.boundingStreets[0].id, singleStrip]]);
+    }
+    else if (faces.length > 1) {
+        // Step 2: Calculate the alpha-strips for the skeleton faces
+        const alphaStrips = calculateAlphaStripsFromFaces(faces, block.boundingStreets);
+    
+        // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
+        const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
+    
+        const strips = new Map<string, Strip>();
+        for (const [streetId, polygon] of betaStrips) {
+            strips.set(streetId, {
+                polygon: polygon,
+                block: block
+            });
+        }
+    
+        return strips;
     }
 
-    return strips;
+    return new Map<string, Strip>();
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -79,24 +93,27 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
         lineColor: [255, 0, 0, 50],
     });
 
-    // Convert the multipolygon result to faces
     const faces: Polygon[] = [];
     
-    // Each coordinate set in the multipolygon represents a set of lots that we're going to cut up.
-    if (lotContour && lotContour.coordinates) {
-        for (const coords of lotContour.coordinates) {
-            // Each coordinate set should form a polygon
-            if (coords && coords.length > 0) {
-                const lot: Polygon = {
-                    type: 'Polygon',
-                    coordinates: coords
-                };
-                
-                const lotFeature = feature(lot);
-                
-                // Only add lots with sufficient area (filter out tiny fragments)
-                if (lotFeature.geometry && area(lotFeature.geometry) > 0.0001) {
-                    faces.push(lotFeature.geometry as Polygon);
+    if (area(lotContour) === area(straightSkeletonPolygons)) {
+        return [block.polygon.geometry];
+    }
+    else {
+        if (lotContour && lotContour.coordinates) {
+            for (const coords of lotContour.coordinates) {
+                // Each coordinate set should form a polygon
+                if (coords && coords.length > 0) {
+                    const lot: Polygon = {
+                        type: 'Polygon',
+                        coordinates: coords
+                    };
+                    
+                    const lotFeature = feature(lot);
+                    
+                    // Only add lots with sufficient area (filter out tiny fragments)
+                    if (lotFeature.geometry && area(lotFeature.geometry) > 0.0001) {
+                        faces.push(lotFeature.geometry as Polygon);
+                    }
                 }
             }
         }
