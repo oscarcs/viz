@@ -11,7 +11,8 @@ import {
     unkinkPolygon,
     difference,
     getGeom,
-    booleanPointInPolygon
+    booleanPointInPolygon,
+    area
 } from "@turf/turf";
 import type {
     FeatureCollection,
@@ -119,6 +120,9 @@ function cutPolygon(poly: Polygon, line: LineString, direction: number, id: stri
     if (clippedResult.geometry.type === "MultiPolygon") {
         for (let j = 0; j < clippedResult.geometry.coordinates.length; j++) {
             const polyg = polygon(clippedResult.geometry.coordinates[j]);
+
+            if (area(polyg) === 0) continue;
+
             const overlap = lineOverlap(polyg, line, { tolerance: 0.00005 });
 
             if (overlap.features.length > 0) {
@@ -128,11 +132,13 @@ function cutPolygon(poly: Polygon, line: LineString, direction: number, id: stri
     }
     else {
         const polyg = polygon(clippedResult.geometry.coordinates);
-        const overlap = lineOverlap(polyg, line, { tolerance: 0.00005 });
-
-        if (overlap.features.length > 0) {
-            cutPolyGeoms.push(polyg.geometry.coordinates);
-        }
+        
+        if (area(polyg) !== 0) {
+            const overlap = lineOverlap(polyg, line, { tolerance: 0.00005 });
+            if (overlap.features.length > 0) {
+                cutPolyGeoms.push(polyg.geometry.coordinates);
+            }
+        };
     }
 
     if (cutPolyGeoms.length === 1) {
