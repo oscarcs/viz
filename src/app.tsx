@@ -3,7 +3,6 @@ import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
 import { PickingInfo } from '@deck.gl/core';
 import '@deck.gl/widgets/stylesheet.css';
-import { Polygon } from 'geojson';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
@@ -64,9 +63,10 @@ function Root() {
             id: "lots",
             data: lotsData,
             filled: true,
-            stroked: false,
+            stroked: true,
             getPolygon: (lot: Lot) => lot.geometry.coordinates[0],
-            getFillColor: (lot: Lot) => lot.color,
+            getLineColor: (lot: Lot) => lot.color,
+            getFillColor: (lot: Lot) => [50, 50, 50, 50],
             pickable: true,
             onHover: updateHoverInfo,
             updateTriggers: {

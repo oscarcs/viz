@@ -5,7 +5,6 @@ import {
     union, 
     featureCollection, 
     feature,
-    difference,
     booleanPointInPolygon,
     point,
     pointToLineDistance,
@@ -202,7 +201,8 @@ type AdjacentPair = {
 }
 
 type TransferRegion = {
-    region: Polygon;
+    slicingLine: LineString;
+    exteriorPoint: number[];
     fromStreetId: string;
     toStreetId: string;
 };
@@ -268,19 +268,23 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         // Swap the triangular corner regions from the shorter street to the longer one
         const swapFrom: Polygon = length1 < length2 ? pair.face1 : pair.face2;
 
-        const region = calculateNearTriangularRegionToCut(
+        const exteriorPoint = pair.sharedEdge.coordinates[0];
+        const interiorPoint = pair.sharedEdge.coordinates[pair.sharedEdge.coordinates.length - 1];
+
+        const slicingLine = calculateSlicingLineToClosestExteriorEdge(
+            interiorPoint,
             swapFrom,
-            pair.sharedEdge, 
-            block
+            block.polygon.geometry
         );
 
-        if (!region) {
-            console.warn(`Failed to calculate triangular region for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
+        if (!slicingLine) {
+            console.warn(`Failed to cut line for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
             continue;
         }
 
         regions.push({
-            region,
+            slicingLine,
+            exteriorPoint,
             fromStreetId: length1 < length2 ? pair.streetId1 : pair.streetId2,
             toStreetId: length1 < length2 ? pair.streetId2 : pair.streetId1
         });
@@ -365,38 +369,6 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
         (e1Start[0] === e2Start[0] && e1Start[1] === e2Start[1] && e1End[0] === e2End[0] && e1End[1] === e2End[1]) ||
         (e1Start[0] === e2End[0] && e1Start[1] === e2End[1] && e1End[0] === e2Start[0] && e1End[1] === e2Start[1])
     );
-}
-
-function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineString, block: Block): Polygon | null {    
-    const exteriorPoint = sharedEdge.coordinates[0];
-    const interiorPoint = sharedEdge.coordinates[sharedEdge.coordinates.length - 1];
-    const slicingLine = calculateSlicingLineToClosestExteriorEdge(interiorPoint, swapFrom, block.polygon.geometry);
-
-    if (!slicingLine) {
-        console.warn('Failed to calculate slicing line');
-        return null;
-    }
-
-    const sliceResult = polygonSlice(swapFrom, slicingLine);
-
-    if (!sliceResult || sliceResult.features.length === 0) {
-        console.warn('Polygon slice operation failed or returned no features');
-        return null;
-    }
-
-    // Find which resulting polygon contains the exterior point
-    const exteriorPointFeature = point(exteriorPoint);
-    
-    for (const polygonFeature of sliceResult.features) {
-        if (polygonFeature.geometry.type === 'Polygon') {
-            // Check if this polygon contains the exterior point
-            if (booleanPointInPolygon(exteriorPointFeature, polygonFeature)) {
-                return polygonFeature.geometry as Polygon;
-            }
-        }
-    }
-    
-    return null;
 }
 
 function calculateSlicingLineToClosestExteriorEdge(
@@ -501,60 +473,66 @@ function calculateSlicingLineToClosestExteriorEdge(
 }
 
 /**
- * Move the calculated corner transfer regions between beta strips.
+ * Move the transfer regions between beta strips based on the calculated slicing lines.
  * @param betaStrips Beta strips to modify
  * @param regions Regions to transfer between strips
  */
 function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regions: Array<TransferRegion>): void {
-    for (const regionTransfer of regions) {
-        const { region, fromStreetId, toStreetId } = regionTransfer;
+    for (const region of regions) {
+        const sourceStrip = betaStrips.get(region.fromStreetId);
+        const destinationStrip = betaStrips.get(region.toStreetId);
         
-        // Get the current state of the strips (important for multiple transfers)
-        let fromStrip = betaStrips.get(fromStreetId);
-        let toStrip = betaStrips.get(toStreetId);
-        
-        if (!fromStrip || !toStrip) {
-            console.warn(`Strip not found for transfer: from ${fromStreetId} to ${toStreetId}`);
+        if (!sourceStrip || !destinationStrip) {
+            console.warn(`Strip not found for IDs: ${region.fromStreetId}, ${region.toStreetId}`);
             continue;
         }
-
-        try {
-            // Remove the region from the source polygon using difference
-            const fromPolygon = betaStrips.get(fromStreetId);
-            if (!fromPolygon) {
-                console.warn(`From polygon not found for street ID ${fromStreetId}`);
-                continue;
-            }
-
-            const fromFeature = feature(fromPolygon);
-            const regionFeature = feature(region);
-            
-            const differenceResult = difference(featureCollection([fromFeature, regionFeature]));
-            
-            if (differenceResult && differenceResult.geometry && differenceResult.geometry.type === 'Polygon') {
-                fromStrip = differenceResult.geometry as Polygon;
-            }
-            else {
-                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}`);
-                continue;
-            }
-            
-            const unionResult = union(featureCollection([feature(toStrip), regionFeature]));
-            
-            if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
-                toStrip = unionResult.geometry as Polygon;
-            }
-            else {
-                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}`);
-                continue;
-            }
-
-            // Update the betaStrips map with the modified polygons
-            betaStrips.set(fromStreetId, fromStrip);
-            betaStrips.set(toStreetId, toStrip);
+        
+        // Slice the source strip using the slicing line
+        const sliceResult = polygonSlice(sourceStrip, region.slicingLine);
+        
+        if (!sliceResult || sliceResult.features.length === 0) {
+            console.warn(`Polygon slice operation failed for strip ${region.fromStreetId}`);
+            continue;
         }
-        catch (error) {
-            console.warn(`Error during region transfer from ${fromStreetId} to ${toStreetId}:`, error);
+        
+        // Find which resulting polygon contains the exterior point - this is the transfer region
+        const exteriorPointFeature = point(region.exteriorPoint);
+        let transferRegion: Polygon | null = null;
+        let remainingRegion: Polygon | null = null;
+        
+        for (const polygonFeature of sliceResult.features) {
+            if (polygonFeature.geometry.type === 'Polygon') {
+                const polygon = polygonFeature.geometry as Polygon;
+                
+                // Check if this polygon contains the exterior point
+                if (booleanPointInPolygon(exteriorPointFeature, polygonFeature)) {
+                    transferRegion = polygon;
+                }
+                else {
+                    remainingRegion = polygon;
+                }
+            }
         }
+        
+        if (!transferRegion || !remainingRegion) {
+            console.warn(`Failed to identify transfer and remaining regions for strip ${region.fromStreetId}`);
+            continue;
+        }
+        
+        // Update the source strip to the remaining region (after removing the transfer region)
+        betaStrips.set(region.fromStreetId, remainingRegion);
+        
+        // Union the transfer region with the destination strip
+        const transferFeature = feature(transferRegion);
+        const destinationFeature = feature(destinationStrip);
+        const unionResult = union(featureCollection([transferFeature, destinationFeature]));
+        
+        if (!unionResult || !unionResult.geometry || unionResult.geometry.type !== 'Polygon') {
+            console.warn(`Union operation failed for strips ${region.fromStreetId} -> ${region.toStreetId}`);
+            continue;
+        }
+        
+        // Update the destination strip with the unioned result
+        betaStrips.set(region.toStreetId, unionResult.geometry as Polygon);
     }
 }

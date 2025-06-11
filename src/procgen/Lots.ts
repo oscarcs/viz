@@ -26,12 +26,126 @@ function calculateLotsFromBetaStrips(street: LogicalStreet, strips: Strip[]): Lo
     return lots;
 }
 
+/**
+ * Generate splitting rays by traversing the edges of the strip polygon that face the street.
+ * @param street LogicalStreet
+ * @param strip Strip
+ * @returns A set of rays (LineStrings) that will be used to split the strip into lots.
+ */
 function calculateSplittingRays(street: LogicalStreet, strip: Strip): LineString[] {
     const rays: LineString[] = [];
+    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 5, 'meters');
+    const lotWidth = lengthToDegrees(25, 'meters');
 
-    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 1, 'meters');
+    const edgesFacingStreet = findStripEdgesFacingStreet(street, strip);
+    if (edgesFacingStreet) {
+        // Traverse the edges facing the street. Every lotWidth meters, create a ray.
+        const streetEdgeCoords = edgesFacingStreet.coordinates;
+        
+        // Calculate the total length of the street-facing edge(s)
+        let totalLength = 0;
+        for (let i = 0; i < streetEdgeCoords.length - 1; i++) {
+            const dx = streetEdgeCoords[i + 1][0] - streetEdgeCoords[i][0];
+            const dy = streetEdgeCoords[i + 1][1] - streetEdgeCoords[i][1];
+            totalLength += Math.sqrt(dx * dx + dy * dy);
+        }
+        
+        // Generate rays at regular intervals along the street edge
+        let currentDistance = 0;
+        let currentSegmentIndex = 0;
+        let segmentStartDistance = 0;
+        
+        while (currentDistance < totalLength - lotWidth && currentSegmentIndex < streetEdgeCoords.length - 1) {
+            // Find which segment we're currently on
+            while (currentSegmentIndex < streetEdgeCoords.length - 1) {
+                const segmentStart = streetEdgeCoords[currentSegmentIndex];
+                const segmentEnd = streetEdgeCoords[currentSegmentIndex + 1];
+                const dx = segmentEnd[0] - segmentStart[0];
+                const dy = segmentEnd[1] - segmentStart[1];
+                const segmentLength = Math.sqrt(dx * dx + dy * dy);
+                
+                if (currentDistance <= segmentStartDistance + segmentLength) {
+                    // We're on this segment
+                    const segmentProgress = (currentDistance - segmentStartDistance) / segmentLength;
+                    const rayPoint = [
+                        segmentStart[0] + segmentProgress * dx,
+                        segmentStart[1] + segmentProgress * dy
+                    ];
+                    
+                    // Create a perpendicular ray from this point
+                    const ray = createPerpendicularRay(rayPoint, segmentStart, segmentEnd, rayLength);
+                    if (ray) {
+                        rays.push(ray);
+                    }
+                    break;
+                } else {
+                    // Move to next segment
+                    segmentStartDistance += segmentLength;
+                    currentSegmentIndex++;
+                }
+            }
+            
+            currentDistance += lotWidth;
+        }
+    }
 
     return rays;
+}
+
+/**
+ * Find the edges of the strip polygon that are shared with the edges of the given logical street.
+ * @param street LogicalStreet
+ * @param strip Strip
+ * @returns A line string representing the edges of the strip that face the street, or null if none found.
+ */
+function findStripEdgesFacingStreet(street: LogicalStreet, strip: Strip): LineString | null {
+    const stripCoords = strip.polygon.coordinates[0];
+    const sharedPoints: number[][] = [];
+    const tolerance = 1e-10;
+
+    // Check each edge of the strip polygon against each edge of the logical street
+    for (let i = 0; i < stripCoords.length - 1; i++) {
+        const stripStart = stripCoords[i];
+        const stripEnd = stripCoords[i + 1];
+        
+        // Check against all edges in the logical street
+        for (const edge of street.edges) {
+            const streetStart = edge.from.coordinates;
+            const streetEnd = edge.to.coordinates;
+            
+            // Check if the strip edge is a subsegment of or coincident with the street edge
+            if (isEdgeSubsegment(stripStart, stripEnd, streetStart, streetEnd, tolerance)) {
+                // Add the strip edge points if not already present
+                if (!sharedPoints.some(p => 
+                    Math.abs(p[0] - stripStart[0]) < tolerance && Math.abs(p[1] - stripStart[1]) < tolerance)) {
+                    sharedPoints.push(stripStart);
+                }
+                if (!sharedPoints.some(p => 
+                    Math.abs(p[0] - stripEnd[0]) < tolerance && Math.abs(p[1] - stripEnd[1]) < tolerance)) {
+                    sharedPoints.push(stripEnd);
+                }
+                break; // Found a match for this strip edge
+            }
+        }
+    }
+    
+    if (sharedPoints.length < 2) {
+        return null;
+    }
+    
+    // Sort points along the street direction to create a proper line string
+    // For simplicity, we'll sort by distance from the first point
+    const firstPoint = sharedPoints[0];
+    sharedPoints.sort((a, b) => {
+        const distA = Math.sqrt((a[0] - firstPoint[0]) ** 2 + (a[1] - firstPoint[1]) ** 2);
+        const distB = Math.sqrt((b[0] - firstPoint[0]) ** 2 + (b[1] - firstPoint[1]) ** 2);
+        return distA - distB;
+    });
+    
+    return {
+        type: 'LineString',
+        coordinates: sharedPoints
+    };
 }
 
 /**
@@ -172,11 +286,11 @@ function isEdgeSubsegment(
 ): boolean {
     // Check if both endpoints of edge1 are close to edge2
     const start1ToEdge2 = pointToLineDistance(edge1Start, lineString([edge2Start, edge2End]), { units: 'degrees' });
-    const end1ToEdge2 = pointToLineDistance(edge1End, lineString([edge2Start, edge2End], { units: 'degrees' }));
+    const end1ToEdge2 = pointToLineDistance(edge1End, lineString([edge2Start, edge2End]), { units: 'degrees' });
     
     // Check if both endpoints of edge2 are close to edge1
     const start2ToEdge1 = pointToLineDistance(edge2Start, lineString([edge1Start, edge1End]), { units: 'degrees' });
-    const end2ToEdge1 = pointToLineDistance(edge2End, lineString([edge1Start, edge1End], { units: 'degrees' }));
+    const end2ToEdge1 = pointToLineDistance(edge2End, lineString([edge1Start, edge1End]), { units: 'degrees' });
     
     return (start1ToEdge2 < tolerance && end1ToEdge2 < tolerance) ||
            (start2ToEdge1 < tolerance && end2ToEdge1 < tolerance);
