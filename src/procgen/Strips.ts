@@ -1,4 +1,4 @@
-import { Feature, LineString, MultiPolygon, Polygon } from "geojson";
+import { Feature, FeatureCollection, LineString, MultiPolygon, Polygon } from "geojson";
 import { 
     area, 
     lineString, 
@@ -486,9 +486,15 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
             console.warn(`Strip not found for IDs: ${region.fromStreetId}, ${region.toStreetId}`);
             continue;
         }
-        
-        // Slice the source strip using the slicing line
-        const sliceResult = polygonSlice(sourceStrip, region.slicingLine);
+                
+        let sliceResult: FeatureCollection<Polygon> | null = null;
+        try {
+            sliceResult = polygonSlice(sourceStrip, region.slicingLine);
+        }
+        catch (error) {
+            // console.log(JSON.stringify(region.slicingLine, null, 2) + ",\n" + JSON.stringify(sourceStrip, null, 2));
+            continue;
+        }
         
         if (!sliceResult || sliceResult.features.length === 0) {
             console.warn(`Polygon slice operation failed for strip ${region.fromStreetId}`);

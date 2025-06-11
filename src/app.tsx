@@ -66,7 +66,7 @@ function Root() {
             stroked: true,
             getPolygon: (lot: Lot) => lot.geometry.coordinates[0],
             getLineColor: (lot: Lot) => lot.color,
-            getFillColor: (lot: Lot) => [50, 50, 50, 50],
+            getFillColor: (lot: Lot) => [lot.color[0], lot.color[1], lot.color[2], 50],
             pickable: true,
             onHover: updateHoverInfo,
             updateTriggers: {

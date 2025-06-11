@@ -1,5 +1,5 @@
 import { LineString, Polygon } from "@deck.gl-community/editable-layers";
-import { lengthToDegrees, feature, cleanCoords, lineString, pointToLineDistance } from "@turf/turf";
+import { lengthToDegrees, feature, cleanCoords, lineString, pointToLineDistance, area } from "@turf/turf";
 import { Color } from "deck.gl";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
@@ -25,6 +25,8 @@ function calculateLotsFromBetaStrips(street: LogicalStreet, strips: Strip[]): Lo
 
     return lots;
 }
+
+const LOT_MIN_AREA = 500; // Minimum area for a valid lot in square meters
 
 /**
  * Generate splitting rays by traversing the edges of the strip polygon that face the street.
@@ -225,10 +227,27 @@ function splitStripIntoLots(
                 const sliceResult = polygonSlice(feature(polygon), feature(ray));
                 
                 if (sliceResult && sliceResult.features && sliceResult.features.length > 0) {
-                    // Add all resulting polygons
+
+                    let producesSmallPolygons = false;
                     for (const slicedFeature of sliceResult.features) {
                         if (slicedFeature.geometry.type === 'Polygon') {
-                            newPolygons.push(slicedFeature.geometry);
+                            if (area(slicedFeature) < LOT_MIN_AREA) {
+                                producesSmallPolygons = true;
+                                break;
+                            }
+                        }
+                    }
+                    
+                    if (producesSmallPolygons) {
+                        // Skip this ray and just keep the original polygon
+                        newPolygons.push(polygon);
+                    }
+                    else {
+                        // Add all resulting polygons
+                        for (const slicedFeature of sliceResult.features) {
+                            if (slicedFeature.geometry.type === 'Polygon') {
+                                newPolygons.push(slicedFeature.geometry);
+                            }
                         }
                     }
                 }
@@ -239,8 +258,8 @@ function splitStripIntoLots(
             }
             catch (error) {
                 // TODO: Debug the slicing errors
-                console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
-                console.log(JSON.stringify(ray, null, 2) + ",\n" + JSON.stringify(polygon, null, 2));
+                //console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
+                //console.log(JSON.stringify(ray, null, 2) + ",\n" + JSON.stringify(polygon, null, 2));
 
                 // Keep the original polygon if slicing fails
                 newPolygons.push(polygon);
