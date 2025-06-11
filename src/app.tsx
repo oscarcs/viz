@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import DeckGL from '@deck.gl/react';
 import { PickingInfo } from '@deck.gl/core';
 import '@deck.gl/widgets/stylesheet.css';
+import { Polygon } from 'geojson';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
@@ -13,7 +14,7 @@ import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { InfoTooltip } from './widget/InfoTooltip';
 import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
 import { Building } from './procgen/Building';
-import { generateStripsFromBlock } from './procgen/Strips';
+import { generateStripsFromBlock, Strip } from './procgen/Strips';
 import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
 
@@ -119,17 +120,26 @@ function Root() {
                     setStreetsData(streetGraph.getStreetFeatureCollection() as any);
 
                     const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
-                    const lots: Lot[] = [];
-                    const allDebugInfo: any[] = [];
                     
+                    const strips: Map<string, Strip[]> = new Map();
                     for (const block of blocks) {
-                        const strips = generateStripsFromBlock(block);
-                        const generatedLots = generateLotsFromStrips(strips, block);
-                        lots.push(...generatedLots);
+                        const generatedStrips = generateStripsFromBlock(block);
+                        for (const [key, strip] of generatedStrips) {
+                            if (!strips.has(key)) strips.set(key, []);
+                            strips.get(key)!.push(strip);
+                        }
+                    }
+
+                    const lots: Lot[] = [];
+                    for (const streetId of strips.keys()) {
+                        const street = streetGraph.getStreet(streetId);
+                        if (street) {
+                            const generatedLots = generateLotsFromStrips(street, strips.get(streetId)!);
+                            lots.push(...generatedLots);
+                        }
                     }
 
                     setLotsData(lots);
-                    setDebugGeometry(allDebugInfo);
                 }
             }
         })

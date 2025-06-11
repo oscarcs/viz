@@ -355,6 +355,10 @@ class StreetGraph {
     getLogicalStreets(): LogicalStreet[] {
         return Array.from(this.logicalStreets.values());
     }
+
+    getStreet(streetId: string): LogicalStreet | null {
+        return this.logicalStreets.get(streetId) || null;
+    }
     
     /**
      * Find the logical street that contains a given edge
@@ -1080,7 +1084,8 @@ class StreetGraph {
 
             return {
                 polygon: shell.toPolygon(),
-                boundingStreets: Array.from(boundingStreets)
+                boundingStreets: Array.from(boundingStreets),
+                maxLotDepth: 50
             };
         });
     }

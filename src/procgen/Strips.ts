@@ -20,14 +20,20 @@ import { multipolygonDifference } from "../util/util";
 export type Block = {
     polygon: Feature<Polygon>;
     boundingStreets: LogicalStreet[];
+    maxLotDepth: number; // Maximum depth of the lot from the street edge in degrees 
 };
+
+export type Strip = {
+    polygon: Polygon;
+    block: Block;
+}
 
 /**
  * Calculate strips from a block polygon and its bounding logical streets according to the algorithm given in Vanegas et al. (2012).
  * @param block Polygon representing the block and its bounding logical streets.
  * @returns A map of street IDs to polygons representing the strips.
  */
-export function generateStripsFromBlock(block: Block): Map<string, Polygon> {
+export function generateStripsFromBlock(block: Block): Map<string, Strip> {
     // Step 1: Calculate the offset straight skeleton of the block
     const faces = calculateFacesFromBlock(block);
 
@@ -37,7 +43,15 @@ export function generateStripsFromBlock(block: Block): Map<string, Polygon> {
     // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
     const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
-    return betaStrips;
+    const strips = new Map<string, Strip>();
+    for (const [streetId, polygon] of betaStrips) {
+        strips.set(streetId, {
+            polygon: polygon,
+            block: block
+        });
+    }
+
+    return strips;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -51,7 +65,7 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
     const straightSkeleton = StraightSkeletonBuilder.buildFromGeoJSON(multiPoly as any);
     
     // Generate an offset skeleton to create a buffer between the lots and the block edge
-    const offsetDistance = lengthToDegrees(50, 'meters');
+    const offsetDistance = lengthToDegrees(block.maxLotDepth, 'meters');
     const straightSkeletonPolygons = straightSkeleton.toMultiPolygon();
     const offsetSkeleton = straightSkeleton.offset(offsetDistance);
 
