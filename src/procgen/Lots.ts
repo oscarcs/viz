@@ -1,4 +1,12 @@
-import { Feature, LineString, MultiPolygon, Polygon, Position } from "geojson";
+import {
+    Feature,
+    FeatureCollection,
+    GeoJsonProperties,
+    GeometryObject,
+    LineString,
+    MultiPolygon,
+    Polygon
+} from "geojson";
 import { 
     area, 
     lineString, 
@@ -11,7 +19,8 @@ import {
     booleanPointInPolygon,
     point,
     pointToLineDistance,
-    lengthToDegrees
+    lengthToDegrees,
+    nearestPointOnLine
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { Color } from '@deck.gl-community/editable-layers';
@@ -36,7 +45,7 @@ export type Lot = {
  * @param block Polygon representing the block and its bounding logical streets.
  * @returns An array of lots.
  */
-export function generateLotsFromBlock(block: Block): Lot[] {
+export function generateLotsFromBlock(block: Block): { lots: Lot[], debugInfo: FeatureCollection }  {
     // Step 1: Calculate the offset straight skeleton of the block
     const faces = calculateFacesFromBlock(block);
 
@@ -47,9 +56,32 @@ export function generateLotsFromBlock(block: Block): Lot[] {
     const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
     // Step 4: Generate lots from the strips
-    const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
+    // const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
 
-    return lots;
+    // Temp output to debug beta strips
+    const tempLots: Lot[] = [];
+    for (const [streetId, face] of betaStrips.betaStrips) {
+        const color = [
+            Math.floor(Math.random() * 200),
+            Math.floor(Math.random() * 200),
+            Math.floor(Math.random() * 200),
+            255
+        ] as Color;
+        
+        tempLots.push({
+            geometry: face,
+            color: [
+                color[0],
+                color[1],
+                color[2],
+                color[3]
+            ] as Color,
+            id: `${streetId}` // Unique ID for each lot
+        });
+    }
+    return { lots: tempLots, debugInfo: betaStrips.debugInfo };
+
+    // return lots;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -169,29 +201,52 @@ function isSegmentAdjacentToStreetEdge(
     return (startDistanceToStreet < tolerance && endDistanceToStreet < tolerance);
 }
 
+function mergeAlphaStripGeometry(faces: Polygon[], streetId: string): Polygon {
+    if (faces.length < 2) {
+        return faces[0];
+    }
+
+    const featuresToUnion = featureCollection(faces.map(f => feature(f)));
+    const unionResult = union(featuresToUnion);
+
+    if (!unionResult) {
+        console.warn(`Union failed for street ${streetId} or resulted in invalid geometry.`);
+        return faces[0];
+    }
+
+    if (!unionResult.geometry || unionResult.geometry.type !== 'Polygon') {
+        console.warn(`Union result for street ${streetId} is not a polygon:`, JSON.stringify(unionResult, null, 2));
+        return faces[0];
+    }
+    
+    const mergedPolygon = unionResult.geometry as Polygon;
+    return mergedPolygon;
+}
+
 type AdjacentPair = {
     streetId1: string;
     streetId2: string;
-    sharedEdge: [number[], number[]];
+    sharedEdge: LineString;
     face1: Polygon;
     face2: Polygon;
-    indexInStrip1: number;
-    indexInStrip2: number;
 }
 
 type TransferRegion = {
     region: Polygon;
-    fromIndex: number;
     fromStreetId: string;
-    toIndex: number;
     toStreetId: string;
 };
 
-function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): Map<string, Polygon[]> {
-    // Create a copy of alpha strips to work with
-    const betaStrips = new Map<string, Polygon[]>();
+function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): { betaStrips: Map<string, Polygon>, debugInfo: FeatureCollection } {
+    const debugInfo: FeatureCollection = {
+        type: 'FeatureCollection',
+        features: []
+    };
+    
+    // Merge the alpha strips into beta strips
+    const betaStrips = new Map<string, Polygon>();
     for (const [streetId, faces] of alphaStrips) {
-        betaStrips.set(streetId, [...faces]);
+        betaStrips.set(streetId, mergeAlphaStripGeometry(faces, streetId));
     }
 
     // Find adjacent alpha strips
@@ -200,19 +255,33 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
     
     for (let i = 0; i < streetIds.length; i++) {
         for (let j = i + 1; j < streetIds.length; j++) {
-            const strip1 = alphaStrips.get(streetIds[i])!;
-            const strip2 = alphaStrips.get(streetIds[j])!;
-            
-            const sharedEdgeInfo = findSharedEdgeBetweenStrips(streetIds[i], streetIds[j], strip1, strip2, block);
-            if (sharedEdgeInfo) {
-                adjacentPairs.push(sharedEdgeInfo);
+            if (streetIds[i] === streetIds[j]) continue;
+
+            const polygon1 = betaStrips.get(streetIds[i]);
+            const polygon2 = betaStrips.get(streetIds[j]);
+
+            if (!polygon1 || !polygon2) {
+                console.warn(`Polygon not found for street IDs: ${streetIds[i]}, ${streetIds[j]}`);
+                continue;
+            }
+
+            const sharedEdge = findSharedEdgesBetweenStrips(polygon1, polygon2, block);
+
+            if (sharedEdge) {
+                adjacentPairs.push({
+                    streetId1: streetIds[i],
+                    streetId2: streetIds[j],
+                    sharedEdge,
+                    face1: polygon1,
+                    face2: polygon2
+                });
             }
         }
     }
 
     const regions: Array<TransferRegion> = [];
 
-    // For each adjacent pair of alpha strips, calculate the corner regions
+    // For each adjacent pair of beta strips, calculate the corner regions
     for (const pair of adjacentPairs) {
         // Calculate which street is longer to determine which strip to cut from
         const street1 = block.boundingStreets.find(street => street.id === pair.streetId1);
@@ -234,65 +303,55 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         // Swap the triangular corner regions from the shorter street to the longer one
         const swapFrom: Polygon = length1 < length2 ? pair.face1 : pair.face2;
 
-        const region = calculateTriangularRegionToCut(
-            swapFrom, 
+        const res = calculateNearTriangularRegionToCut(
+            swapFrom,
             pair.sharedEdge, 
             block
         );
 
-        if (!region) {
+        if (!res) {
             console.warn(`Failed to calculate triangular region for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
             continue;
         }
 
+        if (res.debugInfo) {
+            debugInfo.features.push({
+                type: 'Feature',
+                properties: {
+                    streetId1: pair.streetId1,
+                    streetId2: pair.streetId2,
+                    length1,
+                    length2
+                },
+                geometry: res.region
+            });
+        }
+
         regions.push({
-            region,
-            fromIndex: length1 < length2 ? pair.indexInStrip1 : pair.indexInStrip2,
+            region: res.region,
             fromStreetId: length1 < length2 ? pair.streetId1 : pair.streetId2,
-            toIndex: length1 < length2 ? pair.indexInStrip2 : pair.indexInStrip1,
             toStreetId: length1 < length2 ? pair.streetId2 : pair.streetId1
         });
     }
 
     moveTransferRegionsForBetaStrips(betaStrips, regions);
 
-    return betaStrips;
+    return { betaStrips, debugInfo };
 }
 
-function findSharedEdgeBetweenStrips(streetId1: string, streetId2: string, strip1: Polygon[], strip2: Polygon[], block: Block): AdjacentPair | null {
-    for (const [indexInStrip1, face1] of strip1.entries()) {
-        for (const [indexInStrip2, face2] of strip2.entries()) {
-            const sharedEdge = findSharedEdge(face1, face2);
-
-            if (sharedEdge) {
-                // Check if the shared edge shares a coordinate with the block polygon
-                const blockBoundary = block.polygon.geometry.coordinates[0];
-                const isEdgeOnBlock = blockBoundary.some(coord =>
-                    (coord[0] === sharedEdge[0][0] && coord[1] === sharedEdge[0][1]) ||
-                    (coord[0] === sharedEdge[1][0] && coord[1] === sharedEdge[1][1])
-                );
-                if (!isEdgeOnBlock) continue;
-
-                return {
-                    streetId1,
-                    streetId2,
-                    sharedEdge,
-                    face1,
-                    face2,
-                    indexInStrip1, 
-                    indexInStrip2
-                };
-            }
-        }
-    }
-    return null;
-}
-
-function findSharedEdge(polygon1: Polygon, polygon2: Polygon): [number[], number[]] | null {
-    const coords1 = polygon1.coordinates[0];
-    const coords2 = polygon2.coordinates[0];
-            
-    // Check each edge of polygon1 against each edge of polygon2
+/**
+ * Return the LineString containing the edge or edges that are shared between two beta strip polygons.
+ * The line string is sorted so that the point on the block boundary comes first and the interior point is last.
+ * @param strip1 
+ * @param strip2 
+ * @param block 
+ */
+function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: Block): LineString | null {
+    const coords1 = strip1.coordinates[0];
+    const coords2 = strip2.coordinates[0];
+    const sharedEdgePoints: number[][] = [];
+    
+    // Find all shared edges between the two polygons
     for (let i = 0; i < coords1.length - 1; i++) {
         const edge1Start = coords1[i];
         const edge1End = coords1[i + 1];
@@ -301,14 +360,52 @@ function findSharedEdge(polygon1: Polygon, polygon2: Polygon): [number[], number
             const edge2Start = coords2[j];
             const edge2End = coords2[j + 1];
             
-            // Check if edges are the same (same or opposite direction)
+            // Check if edges are the same using existing helper
             if (edgesAreEqual(edge1Start, edge1End, edge2Start, edge2End)) {
-                return [edge1Start, edge1End];
+                // Add points to shared edge collection if not already present
+                if (!sharedEdgePoints.some(p => 
+                    p[0] === edge1Start[0] && p[1] === edge1Start[1])) {
+                    sharedEdgePoints.push(edge1Start);
+                }
+                if (!sharedEdgePoints.some(p => 
+                    p[0] === edge1End[0] && p[1] === edge1End[1])) {
+                    sharedEdgePoints.push(edge1End);
+                }
             }
         }
     }
+    
+    // If no shared edges found, return null
+    if (sharedEdgePoints.length < 2) {
+        return null;
+    }
+    
+    // Use block geometry to determine correct sort order
+    const blockBoundary = block.polygon.geometry.coordinates[0];
 
-    return null;
+    const getMinDistanceToBlockBoundary = (point: number[]) => {
+        let minDist = Infinity;
+        for (const boundaryPoint of blockBoundary) {
+            const dist = (point[0] - boundaryPoint[0]) ** 2 + (point[1] - boundaryPoint[1]) ** 2;
+            if (dist < minDist) {
+                minDist = dist;
+            }
+        }
+        return minDist;
+    };
+    
+    // Sort points: boundary points first, then by increasing distance from boundary
+    const sortedPoints = sharedEdgePoints.sort((a, b) => {
+        const aDist = getMinDistanceToBlockBoundary(a);
+        const bDist = getMinDistanceToBlockBoundary(b);
+        
+        return aDist - bDist;
+    });
+    
+    return {
+        type: 'LineString',
+        coordinates: sortedPoints
+    };
 }
 
 function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2End: number[]): boolean {
@@ -318,91 +415,143 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
     );
 }
 
-/**
- * Calculate the triangular area to cut from swapFrom (CDX), where X is the
- * closest point on edge AC to point D.
- * @param swapFrom The quadrilateral to swap from (ABCD)
- * @param sharedEdge The shared edge between the two polygons (CD)
- * @param block The block containing both polygons, including edge AC.
- * @returns The triangular area to cut from swapFrom and transfer to swapTo.
- */
-function calculateTriangularRegionToCut(
-    swapFrom: Polygon,
-    sharedEdge: [number[], number[]],
-    block: Block
-): Polygon | null {
-    // Contains edges AC and CE, shared with swapFrom and swapTo
-    const blockBoundary = block.polygon.geometry.coordinates[0];
-    const isPointOnBoundary = (point: number[]) => blockBoundary.some(coord =>
-        coord[0] === point[0] && coord[1] === point[1]
-    );
-    
-    // Find the shared edge points C and D
-    // C should be the point on the block boundary, D should be the interior point
-    const [point1, point2] = sharedEdge;
-    let pointC: number[], pointD: number[];
+function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineString, block: Block): {
+    region: Polygon,
+    debugInfo: FeatureCollection<GeometryObject, GeoJsonProperties>
+} | null {    
+    const exteriorPoint = sharedEdge.coordinates[0];
+    const interiorPoint = sharedEdge.coordinates[sharedEdge.coordinates.length - 1];
+    const slicingLine = calculateSlicingLineToClosestExteriorEdge(interiorPoint, swapFrom, block.polygon.geometry);
 
-    const isPoint1OnBoundary = isPointOnBoundary(point1);
-    const isPoint2OnBoundary = isPointOnBoundary(point2);
-
-    if (isPoint1OnBoundary && !isPoint2OnBoundary) {
-        pointC = point1; // On block boundary
-        pointD = point2; // Interior point
-    }
-    else if (isPoint2OnBoundary && !isPoint1OnBoundary) {
-        pointC = point2; // On block boundary
-        pointD = point1; // Interior point
-    }
-    else {
-        console.warn(`Could not determine boundary vs interior points for shared edge: ${sharedEdge}`);
+    if (!slicingLine) {
+        console.warn('Failed to calculate slicing line');
         return null;
     }
 
-    let pointA: number[] | null = null;
-    let edgeAC: [number[], number[]] | null = null;
+    const sliceResult = polygonSlice(swapFrom, slicingLine);
 
-    const swapFromCoords = swapFrom.coordinates[0];
+    if (!sliceResult || sliceResult.features.length === 0) {
+        console.warn('Polygon slice operation failed or returned no features');
+        return null;
+    }
 
-    // Look for an edge in swapFrom that contains pointC and has its other endpoint on the block boundary
-    for (let i = 0; i < swapFromCoords.length - 1; i++) {
-        const edgeStart = swapFromCoords[i];
-        const edgeEnd = swapFromCoords[i + 1];
+    // Find which resulting polygon contains the exterior point
+    const exteriorPointFeature = point(exteriorPoint);
+    
+    for (const polygonFeature of sliceResult.features) {
+        if (polygonFeature.geometry.type === 'Polygon') {
+            // Check if this polygon contains the exterior point
+            if (booleanPointInPolygon(exteriorPointFeature, polygonFeature)) {
+                return {
+                    region: polygonFeature.geometry as Polygon,
+                    debugInfo: featureCollection([feature(polygonFeature.geometry)])
+                }
+            }
+        }
+    }
+    
+    return null;
+}
+
+function calculateSlicingLineToClosestExteriorEdge(
+    sourcePoint: number[], 
+    polygon: Polygon,
+    outsideShape: Polygon
+): LineString | null {
+    const polygonBoundary = polygon.coordinates[0];
+    const outsideShapeBoundary = outsideShape.coordinates[0];
+    
+    // Find all shared edges between the polygon and outside shape
+    const sharedEdges: LineString[] = [];
+    const tolerance = 0.00001;
+    
+    for (let i = 0; i < polygonBoundary.length - 1; i++) {
+        const polyStart = polygonBoundary[i];
+        const polyEnd = polygonBoundary[i + 1];
         
-        // Check if this edge contains pointC
-        const containsC = (edgeStart[0] === pointC[0] && edgeStart[1] === pointC[1]) ||
-            (edgeEnd[0] === pointC[0] && edgeEnd[1] === pointC[1]);
-        
-        if (containsC) {
-            // Determine which point is A (the other endpoint that should be on block boundary)
-            const otherPoint = (edgeStart[0] === pointC[0] && edgeStart[1] === pointC[1]) ? edgeEnd : edgeStart;
+        for (let j = 0; j < outsideShapeBoundary.length - 1; j++) {
+            const outsideStart = outsideShapeBoundary[j];
+            const outsideEnd = outsideShapeBoundary[j + 1];
             
-            // Check if the other point is on the block boundary
-            const isOtherPointOnBoundary = isPointOnBoundary(otherPoint);
-            
-            // Also check that this other point is not pointD (we want the AC edge, not CD edge)
-            const isNotPointD = !(otherPoint[0] === pointD[0] && otherPoint[1] === pointD[1]);
-            
-            if (isOtherPointOnBoundary && isNotPointD) {
-                pointA = otherPoint;
-                edgeAC = [pointA, pointC];
+            // Check if edges are the same or overlapping
+            if (edgesAreEqual(polyStart, polyEnd, outsideStart, outsideEnd)) {
+                sharedEdges.push({
+                    type: 'LineString',
+                    coordinates: [polyStart, polyEnd]
+                });
                 break;
             }
         }
     }
-
-    if (!pointA || !edgeAC) {
-        console.warn(`Could not find edge AC in swapFrom polygon`);
+    
+    if (sharedEdges.length === 0) {
+        console.warn('No shared edges found between polygon and outside shape');
+        return null;
+    }
+    
+    // Find the closest point on any shared edge to the source point
+    let closestPoint: number[] | null = null;
+    let minDistance = Infinity;
+    
+    for (const sharedEdge of sharedEdges) {
+        const nearestPoint = nearestPointOnLine(sharedEdge, sourcePoint);
+        
+        if (nearestPoint && nearestPoint.geometry.coordinates) {
+            const edgePoint = nearestPoint.geometry.coordinates;
+            
+            // Skip if it's the same as source point
+            if (Math.abs(edgePoint[0] - sourcePoint[0]) < tolerance && 
+                Math.abs(edgePoint[1] - sourcePoint[1]) < tolerance) {
+                continue;
+            }
+            
+            const distance = Math.sqrt(
+                (edgePoint[0] - sourcePoint[0]) ** 2 + 
+                (edgePoint[1] - sourcePoint[1]) ** 2
+            );
+            
+            if (distance < minDistance) {
+                minDistance = distance;
+                closestPoint = edgePoint;
+            }
+        }
+    }
+    
+    if (!closestPoint) {
+        console.warn('No valid closest point found on shared edges');
         return null;
     }
 
-    const pointX = findClosestPointOnLineSegmentOutsideShape(pointD, pointA, pointC, block.polygon.geometry);
-
-    const triangularArea: Polygon = {
-        type: "Polygon",
-        coordinates: [[pointC, pointD, pointX, pointC]]
+    // Extend the line slightly beyond the closest point to ensure it's outside the polygon
+    const direction = [
+        closestPoint[0] - sourcePoint[0],
+        closestPoint[1] - sourcePoint[1]
+    ];
+    
+    // Normalize the direction vector
+    const directionLength = Math.sqrt(direction[0] * direction[0] + direction[1] * direction[1]);
+    if (directionLength === 0) {
+        console.warn('Source point and closest point are the same');
+        return null;
+    }
+    
+    const normalizedDirection = [
+        direction[0] / directionLength,
+        direction[1] / directionLength
+    ];
+    
+    // Extend beyond the closest point by a small amount
+    const extensionDistance = tolerance * 10; // Make it larger than tolerance to be safe
+    const extendedPoint = [
+        closestPoint[0] + normalizedDirection[0] * extensionDistance,
+        closestPoint[1] + normalizedDirection[1] * extensionDistance
+    ];
+    
+    // Create the slicing line from source point to closest point on shared edge
+    return {
+        type: 'LineString',
+        coordinates: [sourcePoint, extendedPoint]
     };
-
-    return triangularArea;
 }
 
 /**
@@ -410,181 +559,71 @@ function calculateTriangularRegionToCut(
  * @param betaStrips Beta strips to modify
  * @param regions Regions to transfer between strips
  */
-function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon[]>, regions: Array<TransferRegion>): void {
+function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regions: Array<TransferRegion>): void {
     for (const regionTransfer of regions) {
-        const { region, fromIndex, fromStreetId, toIndex, toStreetId } = regionTransfer;
+        const { region, fromStreetId, toStreetId } = regionTransfer;
         
         // Get the current state of the strips (important for multiple transfers)
-        const fromStrip = betaStrips.get(fromStreetId);
-        const toStrip = betaStrips.get(toStreetId);
+        let fromStrip = betaStrips.get(fromStreetId);
+        let toStrip = betaStrips.get(toStreetId);
         
         if (!fromStrip || !toStrip) {
             console.warn(`Strip not found for transfer: from ${fromStreetId} to ${toStreetId}`);
             continue;
         }
-        
-        if (fromIndex >= fromStrip.length || toIndex >= toStrip.length) {
-            console.warn(`Index out of bounds for transfer: from ${fromIndex}/${fromStrip.length} to ${toIndex}/${toStrip.length}`);
-            continue;
-        }
 
         try {
             // Remove the region from the source polygon using difference
-            const fromPolygon = fromStrip[fromIndex];
+            const fromPolygon = betaStrips.get(fromStreetId);
+            if (!fromPolygon) {
+                console.warn(`From polygon not found for street ID ${fromStreetId}`);
+                continue;
+            }
+
             const fromFeature = feature(fromPolygon);
             const regionFeature = feature(region);
             
             const differenceResult = difference(featureCollection([fromFeature, regionFeature]));
             
             if (differenceResult && differenceResult.geometry && differenceResult.geometry.type === 'Polygon') {
-                // Update the from polygon with the result of the difference operation
-                fromStrip[fromIndex] = differenceResult.geometry as Polygon;
+                fromStrip = differenceResult.geometry as Polygon;
             }
             else {
-                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}[${fromIndex}]`);
+                console.warn(`Difference operation failed or resulted in non-polygon geometry for ${fromStreetId}`);
                 continue;
             }
-
-            // Add the region to the target polygon using union
-            const toPolygon = toStrip[toIndex];
             
-            const unionResult = union(featureCollection([feature(toPolygon), regionFeature]));
+            const unionResult = union(featureCollection([feature(toStrip), regionFeature]));
             
             if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
-                // Update the to polygon with the result of the union operation
-                toStrip[toIndex] = unionResult.geometry as Polygon;
+                toStrip = unionResult.geometry as Polygon;
             }
             else {
-                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}[${toIndex}]`);
-                // If union failed, we should revert the difference operation
-                fromStrip[fromIndex] = fromPolygon;
+                console.warn(`Union operation failed or resulted in non-polygon geometry for ${toStreetId}`);
                 continue;
-            } 
+            }
+
+            // Update the betaStrips map with the modified polygons
+            betaStrips.set(fromStreetId, fromStrip);
+            betaStrips.set(toStreetId, toStrip);
         }
         catch (error) {
-            console.warn(`Error during region transfer from ${fromStreetId}[${fromIndex}] to ${toStreetId}[${toIndex}]:`, error);
+            console.warn(`Error during region transfer from ${fromStreetId} to ${toStreetId}:`, error);
         }
     }
 }
 
-/**
- * Find the closest point on a line segment to a given point
- * The calculated point should be outside the shape defined by the line segment.
- */
-function findClosestPointOnLineSegmentOutsideShape(
-    sourcePoint: number[], 
-    lineStart: number[], 
-    lineEnd: number[],
-    outsideShape: Polygon
-): number[] {
-    const dx = lineEnd[0] - lineStart[0];
-    const dy = lineEnd[1] - lineStart[1];
-    
-    if (dx === 0 && dy === 0) {
-        return lineStart;
-    }
-    
-    // Calculate the parameter t for the closest point on the line
-    const t = Math.max(0, Math.min(1, 
-        ((sourcePoint[0] - lineStart[0]) * dx + (sourcePoint[1] - lineStart[1]) * dy) / (dx * dx + dy * dy)
-    ));
-    
-    // Calculate the initial closest point
-    let closestPoint = [
-        lineStart[0] + t * dx,
-        lineStart[1] + t * dy
-    ];
-    
-    // Check if the point is inside the polygon
-    const pointFeature = point(closestPoint);
-    const shapeFeature = feature(outsideShape);
-    
-    if (!booleanPointInPolygon(pointFeature, shapeFeature)) {
-        return closestPoint;
-    }
-    
-    // Strategy: Move perpendicular to the line segment to get outside
-    const segmentLength = Math.sqrt(dx * dx + dy * dy);
-    if (segmentLength === 0) {
-        return lineStart;
-    }
-    
-    // Calculate perpendicular directions (both sides)
-    const perpX = -dy / segmentLength;
-    const perpY = dx / segmentLength;
-    
-    const epsilon = 0.00001;
-    const maxSteps = 50;
-    
-    // Try moving in both perpendicular directions
-    for (let step = 1; step <= maxSteps; step++) {
-        const offset = step * epsilon;
-        // console.log(`Trying step ${step} with offset ${offset}`);
-        
-        // Try positive perpendicular direction
-        const testPoint1: Position = [
-            closestPoint[0] + perpX * offset,
-            closestPoint[1] + perpY * offset
-        ];
-
-        if (!booleanPointInPolygon(point(testPoint1), shapeFeature)) {
-            return testPoint1;
-        }
-        
-        // Try negative perpendicular direction
-        const testPoint2 = [
-            closestPoint[0] - perpX * offset,
-            closestPoint[1] - perpY * offset
-        ];
-        
-        if (!booleanPointInPolygon(point(testPoint2), shapeFeature)) {
-            return testPoint2;
-        }
-    }
-    
-    console.warn('Beta strip X-point calculation: Could not find a point outside the polygon');
-    return closestPoint;
-}
-
-function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon[]>, boundingStreets: LogicalStreet[]): Lot[] {
+function calculateLotsFromBetaStrips(betaStrips: Map<string, Polygon>, boundingStreets: LogicalStreet[]): Lot[] {
     // Min and max parcel widths
     const Wmin = lengthToDegrees(20, 'meters');
     const Wmax = lengthToDegrees(35, 'meters');
     
     // Split irregularity (0-1)
     const omega = 1;
-    
-    const mergedPolygons: Map<string, Polygon> = new Map();
-    for (const [streetId, faces] of betaStrips) {
-
-        if (faces.length < 2) {
-            mergedPolygons.set(streetId, faces[0]);
-            continue;
-        }
-
-        const featuresToUnion = featureCollection(faces.map(f => feature(f)));
-        const unionResult = union(featuresToUnion);
-       
-        if (unionResult && unionResult.geometry && unionResult.geometry.type === 'Polygon') {
-            const mergedPolygon = unionResult.geometry as Polygon;
-            mergedPolygons.set(streetId, mergedPolygon);
-        }
-        else {
-            console.warn(`Union failed for street ${streetId} or resulted in invalid geometry.`);
-        }
-    }
 
     const lots: Lot[] = [];
-    // for (const [streetId, mergedPolygon] of mergedPolygons) {
-    //     lots.push({
-    //         geometry: mergedPolygon,
-    //         color: [Math.random() * 255, Math.random() * 255, Math.random() * 255, 255] as Color,
-    //         id: `merged-${lots.length}` // Unique ID for each merged polygon
-    //     });
-    // }
-    // return lots;
 
-    for (const [streetId, mergedPolygon] of mergedPolygons) {
+    for (const [streetId, mergedPolygon] of betaStrips) {
         const street = boundingStreets.find(street => street.id === streetId);
 
         if (!street) {

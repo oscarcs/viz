@@ -34,6 +34,7 @@ function Root() {
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [lotsData, setLotsData] = React.useState<Lot[]>([]);
     const [buildingData] = React.useState<Building[]>([]);
+    const [debugGeometry, setDebugGeometry] = React.useState<any[]>([]);
 
     const currentMode = activeTool === 'draw' ? drawMode : selectMode;
 
@@ -69,6 +70,16 @@ function Root() {
             updateTriggers: {
                 updateHoverInfo: [activeTool]
             },
+        }),
+        new PolygonLayer({
+            id: "debug-geometry",
+            data: debugGeometry,
+            filled: false,
+            stroked: true,
+            getPolygon: (d: any) => d.geometry?.coordinates?.[0] || d.coordinates,
+            getLineColor: [255, 255, 0, 200],
+            getLineWidth: 1,
+            pickable: false,
         }),
         new PolygonLayer<Building>({
             id: "buildings",
@@ -108,13 +119,19 @@ function Root() {
 
                     const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
                     const lots: Lot[] = [];
+                    const allDebugInfo: any[] = [];
                     
                     for (const block of blocks) {
                         const generatedLots = generateLotsFromBlock(block);
-                        lots.push(...generatedLots);
+                        lots.push(...generatedLots.lots);
+
+                        if (generatedLots.debugInfo) {
+                            allDebugInfo.push(...generatedLots.debugInfo.features);
+                        }
                     }
 
                     setLotsData(lots);
+                    setDebugGeometry(allDebugInfo);
                 }
             }
         })
