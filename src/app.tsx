@@ -123,11 +123,7 @@ function Root() {
                     
                     for (const block of blocks) {
                         const generatedLots = generateLotsFromBlock(block);
-                        lots.push(...generatedLots.lots);
-
-                        if (generatedLots.debugInfo) {
-                            allDebugInfo.push(...generatedLots.debugInfo.features);
-                        }
+                        lots.push(...generatedLots);
                     }
 
                     setLotsData(lots);

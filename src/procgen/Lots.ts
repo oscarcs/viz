@@ -1,10 +1,4 @@
-import {
-    Feature,
-    FeatureCollection,
-    LineString,
-    MultiPolygon,
-    Polygon
-} from "geojson";
+import { Feature, LineString, MultiPolygon, Polygon } from "geojson";
 import { 
     area, 
     lineString, 
@@ -42,7 +36,7 @@ export type Lot = {
  * @param block Polygon representing the block and its bounding logical streets.
  * @returns An array of lots.
  */
-export function generateLotsFromBlock(block: Block): { lots: Lot[], debugInfo: FeatureCollection }  {
+export function generateLotsFromBlock(block: Block): Lot[] {
     // Step 1: Calculate the offset straight skeleton of the block
     const faces = calculateFacesFromBlock(block);
 
@@ -53,32 +47,9 @@ export function generateLotsFromBlock(block: Block): { lots: Lot[], debugInfo: F
     const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
 
     // Step 4: Generate lots from the strips
-    // const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
+    const lots = calculateLotsFromBetaStrips(betaStrips, block.boundingStreets);    
 
-    // Temp output to debug beta strips
-    const tempLots: Lot[] = [];
-    for (const [streetId, face] of betaStrips.betaStrips) {
-        const color = [
-            Math.floor(Math.random() * 200),
-            Math.floor(Math.random() * 200),
-            Math.floor(Math.random() * 200),
-            255
-        ] as Color;
-        
-        tempLots.push({
-            geometry: face,
-            color: [
-                color[0],
-                color[1],
-                color[2],
-                color[3]
-            ] as Color,
-            id: `${streetId}` // Unique ID for each lot
-        });
-    }
-    return { lots: tempLots, debugInfo: betaStrips.debugInfo };
-
-    // return lots;
+    return lots;
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
@@ -234,12 +205,7 @@ type TransferRegion = {
     toStreetId: string;
 };
 
-function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): { betaStrips: Map<string, Polygon>, debugInfo: FeatureCollection } {
-    const debugInfo: FeatureCollection = {
-        type: 'FeatureCollection',
-        features: []
-    };
-    
+function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>, block: Block): Map<string, Polygon> {    
     // Merge the alpha strips into beta strips
     const betaStrips = new Map<string, Polygon>();
     for (const [streetId, faces] of alphaStrips) {
@@ -300,32 +266,19 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
         // Swap the triangular corner regions from the shorter street to the longer one
         const swapFrom: Polygon = length1 < length2 ? pair.face1 : pair.face2;
 
-        const res = calculateNearTriangularRegionToCut(
+        const region = calculateNearTriangularRegionToCut(
             swapFrom,
             pair.sharedEdge, 
             block
         );
 
-        if (!res) {
+        if (!region) {
             console.warn(`Failed to calculate triangular region for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
             continue;
         }
 
-        if (res.debugInfo) {
-            debugInfo.features.push({
-                type: 'Feature',
-                properties: {
-                    streetId1: pair.streetId1,
-                    streetId2: pair.streetId2,
-                    length1,
-                    length2
-                },
-                geometry: res.region
-            });
-        }
-
         regions.push({
-            region: res.region,
+            region,
             fromStreetId: length1 < length2 ? pair.streetId1 : pair.streetId2,
             toStreetId: length1 < length2 ? pair.streetId2 : pair.streetId1
         });
@@ -333,7 +286,7 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
 
     moveTransferRegionsForBetaStrips(betaStrips, regions);
 
-    return { betaStrips, debugInfo };
+    return betaStrips;
 }
 
 /**
@@ -412,10 +365,7 @@ function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2
     );
 }
 
-function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineString, block: Block): {
-    region: Polygon,
-    debugInfo: FeatureCollection
-} | null {    
+function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineString, block: Block): Polygon | null {    
     const exteriorPoint = sharedEdge.coordinates[0];
     const interiorPoint = sharedEdge.coordinates[sharedEdge.coordinates.length - 1];
     const slicingLine = calculateSlicingLineToClosestExteriorEdge(interiorPoint, swapFrom, block.polygon.geometry);
@@ -439,10 +389,7 @@ function calculateNearTriangularRegionToCut(swapFrom: Polygon, sharedEdge: LineS
         if (polygonFeature.geometry.type === 'Polygon') {
             // Check if this polygon contains the exterior point
             if (booleanPointInPolygon(exteriorPointFeature, polygonFeature)) {
-                return {
-                    region: polygonFeature.geometry as Polygon,
-                    debugInfo: featureCollection([feature(polygonFeature.geometry)])
-                }
+                return polygonFeature.geometry as Polygon;
             }
         }
     }
