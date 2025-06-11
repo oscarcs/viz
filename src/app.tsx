@@ -13,8 +13,9 @@ import { CustomCompassWidget } from './widget/CustomCompassWidget';
 import { InfoTooltip } from './widget/InfoTooltip';
 import { KeyboardShortcutsWidget } from './widget/KeyboardShortcutsWidget';
 import { Building } from './procgen/Building';
-import { generateLotsFromBlock, Lot } from './procgen/Lots';
+import { generateStripsFromBlock } from './procgen/Strips';
 import { SelectMode } from './editors/SelectMode';
+import { generateLotsFromStrips, Lot } from './procgen/Lots';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -122,7 +123,8 @@ function Root() {
                     const allDebugInfo: any[] = [];
                     
                     for (const block of blocks) {
-                        const generatedLots = generateLotsFromBlock(block);
+                        const strips = generateStripsFromBlock(block);
+                        const generatedLots = generateLotsFromStrips(strips, block);
                         lots.push(...generatedLots);
                     }
 

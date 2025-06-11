@@ -10,7 +10,7 @@ import {
     Feature,
     Polygon,
 } from "geojson";
-import { Block } from "../procgen/Lots";
+import { Block } from "../procgen/Strips";
 
 /**
  * Validates the geoJson.
