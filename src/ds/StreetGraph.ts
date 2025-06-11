@@ -11,6 +11,7 @@ import {
     Polygon,
 } from "geojson";
 import { Block } from "../procgen/Strips";
+import { randomFromArray } from "../util/random";
 
 /**
  * Validates the geoJson.
@@ -1085,7 +1086,7 @@ class StreetGraph {
             return {
                 polygon: shell.toPolygon(),
                 boundingStreets: Array.from(boundingStreets),
-                maxLotDepth: 50
+                maxLotDepth: randomFromArray([40, 50, 60])
             };
         });
     }
