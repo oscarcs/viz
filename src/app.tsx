@@ -6,7 +6,7 @@ import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
-import { PolygonLayer } from 'deck.gl';
+import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
@@ -16,6 +16,7 @@ import { Building } from './procgen/Building';
 import { generateStripsFromBlock, Strip } from './procgen/Strips';
 import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
+import { DebugGeometry, debugStore } from './debug/DebugStore';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -35,9 +36,16 @@ function Root() {
     const [streetsData, setStreetsData] = React.useState<FeatureCollection>({ type: 'FeatureCollection', features: [] });
     const [lotsData, setLotsData] = React.useState<Lot[]>([]);
     const [buildingData] = React.useState<Building[]>([]);
-    const [debugGeometry, setDebugGeometry] = React.useState<any[]>([]);
+    const [debugGeometry, setDebugGeometry] = React.useState<DebugGeometry[]>([]);
 
     const currentMode = activeTool === 'draw' ? drawMode : selectMode;
+
+    React.useEffect(() => {
+        const unsubscribe = debugStore.subscribe((geometries) => {
+            setDebugGeometry(geometries);
+        });
+        return unsubscribe;
+    }, []);
 
     React.useEffect(() => {
         drawMode.setGraph(streetGraph);
@@ -73,16 +81,6 @@ function Root() {
                 updateHoverInfo: [activeTool]
             },
         }),
-        new PolygonLayer({
-            id: "debug-geometry",
-            data: debugGeometry,
-            filled: false,
-            stroked: true,
-            getPolygon: (d: any) => d.geometry?.coordinates?.[0] || d.coordinates,
-            getLineColor: [255, 255, 0, 200],
-            getLineWidth: 1,
-            pickable: false,
-        }),
         new PolygonLayer<Building>({
             id: "buildings",
             data: buildingData,
@@ -114,6 +112,11 @@ function Root() {
             onHover: updateHoverInfo,
             onEdit: ({updatedData, editType}) => {
                 if (activeTool === 'draw' && editType !== 'addTentativePosition') {
+
+                    if (updatedData.features.length === 0) return;
+
+                    debugStore.clear();
+
                     streetGraph.addLineString(updatedData.features[0].geometry, { 
                         pointSnapping: drawMode.getPointSnappingStates()
                     });
@@ -142,6 +145,31 @@ function Root() {
                     setLotsData(lots);
                 }
             }
+        }),
+        new GeoJsonLayer({
+            id: "debug",
+            data: {
+                type: 'FeatureCollection',
+                features: debugGeometry.map((debug, index) => ({
+                    type: 'Feature' as const,
+                    geometry: debug.geometry,
+                    properties: {
+                        label: debug.label || `Debug ${index}`,
+                        color: debug.color || [255, 255, 0, 255],
+                        lineColor: debug.lineColor || [0, 0, 255, 255]
+                    }
+                }))
+            },
+            filled: true,
+            stroked: true,
+            extruded: false,
+            pointRadiusMinPixels: 5,
+            pointRadiusMaxPixels: 10,
+            getLineWidth: 0.5,
+            getPointRadius: 5,
+            getFillColor: (feature: any) => feature.properties.color,
+            getLineColor: (feature: any) => feature.properties.lineColor,
+            pickable: false
         })
     ];
 

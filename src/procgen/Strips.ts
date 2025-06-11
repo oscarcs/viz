@@ -15,6 +15,7 @@ import polygonSlice from '../util/polygonSlice';
 import { LogicalStreet } from '../ds/LogicalStreet';
 import { StraightSkeletonBuilder } from "straight-skeleton-geojson";
 import { multipolygonDifference } from "../util/util";
+import { debugStore } from "../debug/DebugStore";
 
 export type Block = {
     polygon: Feature<Polygon>;
@@ -72,6 +73,12 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
     // This gives us the basic lot shapes with some buffer from the block edge
     const lotContour = multipolygonDifference(straightSkeletonPolygons, offsetSkeleton);
     
+    debugStore.addGeometry({
+        geometry: lotContour,
+        color: [0, 255, 0, 0],
+        lineColor: [255, 0, 0, 50],
+    });
+
     // Convert the multipolygon result to faces
     const faces: Polygon[] = [];
     
@@ -85,12 +92,11 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
                     coordinates: coords
                 };
                 
-                // simplify(feature(lot), { tolerance: 0.00001, highQuality: true });
-                const simplifiedLot = feature(lot);
+                const lotFeature = feature(lot);
                 
                 // Only add lots with sufficient area (filter out tiny fragments)
-                if (simplifiedLot.geometry && area(simplifiedLot.geometry) > 0.0001) {
-                    faces.push(simplifiedLot.geometry as Polygon);
+                if (lotFeature.geometry && area(lotFeature.geometry) > 0.0001) {
+                    faces.push(lotFeature.geometry as Polygon);
                 }
             }
         }
@@ -281,6 +287,12 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
             console.warn(`Failed to cut line for alpha strip pair: ${pair.streetId1} - ${pair.streetId2}`);
             continue;
         }
+
+        debugStore.addGeometry({
+            geometry: slicingLine,
+            color: [0, 255, 0, 0],
+            lineColor: [0, 0, 255, 255],
+        });
 
         regions.push({
             slicingLine,
@@ -492,7 +504,7 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
             sliceResult = polygonSlice(sourceStrip, region.slicingLine);
         }
         catch (error) {
-            // console.log(JSON.stringify(region.slicingLine, null, 2) + ",\n" + JSON.stringify(sourceStrip, null, 2));
+            console.warn(`Error during polygon slice operation for strip ${region.fromStreetId} to ${region.toStreetId}:`, error);
             continue;
         }
         
@@ -519,14 +531,14 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
                 }
             }
         }
-        
-        if (!transferRegion || !remainingRegion) {
-            console.warn(`Failed to identify transfer and remaining regions for strip ${region.fromStreetId}`);
+
+        if (!transferRegion) {
+            console.warn(`No transfer region found for exterior point ${region.exteriorPoint} in strip ${region.fromStreetId}`);
             continue;
         }
-        
+
         // Update the source strip to the remaining region (after removing the transfer region)
-        betaStrips.set(region.fromStreetId, remainingRegion);
+        betaStrips.set(region.fromStreetId, remainingRegion!);
         
         // Union the transfer region with the destination strip
         const transferFeature = feature(transferRegion);
@@ -540,5 +552,12 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
         
         // Update the destination strip with the unioned result
         betaStrips.set(region.toStreetId, unionResult.geometry as Polygon);
+    }
+
+    // Remove any empty strips
+    for (const [streetId, strip] of betaStrips.entries()) {
+        if (!strip || !strip.coordinates || strip.coordinates.length === 0) {
+            betaStrips.delete(streetId);
+        }
     }
 }

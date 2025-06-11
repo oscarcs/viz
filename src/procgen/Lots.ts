@@ -11,11 +11,9 @@ export type Lot = {
     id: string;
 };
 
-export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): Lot[] {
-    return calculateLotsFromBetaStrips(street, strips);
-}
+const LOT_MIN_AREA = 500; // Minimum area for a valid lot in square meters
 
-function calculateLotsFromBetaStrips(street: LogicalStreet, strips: Strip[]): Lot[] {
+export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): Lot[] {
     const lots: Lot[] = [];
 
     for (const strip of strips) {
@@ -25,8 +23,6 @@ function calculateLotsFromBetaStrips(street: LogicalStreet, strips: Strip[]): Lo
 
     return lots;
 }
-
-const LOT_MIN_AREA = 500; // Minimum area for a valid lot in square meters
 
 /**
  * Generate splitting rays by traversing the edges of the strip polygon that face the street.
