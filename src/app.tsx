@@ -17,10 +17,11 @@ import { generateStripsFromBlock, Strip } from './procgen/Strips';
 import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
 import { DebugGeometry, debugStore } from './debug/DebugStore';
+import { customBuffer } from './util/CustomBuffer';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
-    longitude: 0,
+    longitude: 0,   
     zoom: 17,
     bearing: 0,
     pitch: 0
@@ -120,7 +121,24 @@ function Root() {
                     streetGraph.addLineString(updatedData.features[0].geometry, { 
                         pointSnapping: drawMode.getPointSnappingStates()
                     });
-                    setStreetsData(streetGraph.getStreetFeatureCollection() as any);
+                    const streets = streetGraph.getStreetFeatureCollection();
+                    setStreetsData(streets as any);
+
+                    for (const street of streetGraph.getLogicalStreets()) {
+                        const bufferedStreet = customBuffer(street.getLineString(), 10, {
+                            units: 'meters',
+                            steps: 0,
+                            endCapStyle: 'flat'
+                        });
+                        if (bufferedStreet) {
+                            debugStore.addGeometry({
+                                geometry: bufferedStreet.type === 'Feature' ? bufferedStreet.geometry : bufferedStreet.features[0].geometry,
+                                color: [255, 0, 0, 100],
+                                lineColor: [0, 0, 255, 255]
+                            });
+                        }
+                    }
+
 
                     const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
                     
