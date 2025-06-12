@@ -2,7 +2,7 @@ import { Node } from "./Node";
 import { Edge } from "./Edge";
 import { EdgeRing } from "./EdgeRing";
 import { LogicalStreet } from "./LogicalStreet";
-import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection } from "@turf/turf";
+import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection, difference } from "@turf/turf";
 import {
     FeatureCollection,
     LineString,
@@ -1035,7 +1035,7 @@ class StreetGraph {
      * Returns blocks; polygons with information about which logical streets bound each polygon
      * @returns Blocks
      */
-    static polygonizeToBlocks(graph: StreetGraph): Block[] {
+    static polygonizeToBlocks(graph: StreetGraph, streetGeometry: Feature<Polygon>): Block[] {
         // Create a copy to avoid modifying the original graph
         // TODO: Figure out to handle cut edges and dangles in the original graph 
         const graphCopy = graph.copy();
@@ -1083,8 +1083,13 @@ class StreetGraph {
                 }
             });
 
+            // Remove the street geometry from the shell
+            const blockPolygon = difference(featureCollection([shell.toPolygon(), streetGeometry]));
+
+            console.log(blockPolygon);
+
             return {
-                polygon: shell.toPolygon(),
+                polygon: blockPolygon! as Feature<Polygon>,
                 boundingStreets: Array.from(boundingStreets),
                 maxLotDepth: randomFromArray([40, 50, 60])
             };

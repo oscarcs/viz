@@ -4,7 +4,6 @@ import DeckGL from '@deck.gl/react';
 import { PickingInfo } from '@deck.gl/core';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
-import { FeatureCollection } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
 import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
@@ -18,6 +17,8 @@ import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
 import { DebugGeometry, debugStore } from './debug/DebugStore';
 import { customBuffer } from './util/CustomBuffer';
+import { Feature, FeatureCollection, Polygon } from 'geojson';
+import { union } from '@turf/turf';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
@@ -99,7 +100,7 @@ function Root() {
         }),
         new EditableGeoJsonLayer({
             id: "streets",
-            data: streetsData,
+            data: streetsData as any,
             mode: currentMode,
             filled: true,
             getLineWidth: 3,
@@ -124,26 +125,41 @@ function Root() {
                     const streets = streetGraph.getStreetFeatureCollection();
                     setStreetsData(streets as any);
 
+                    const bufferedStreets: FeatureCollection<Polygon> = {
+                        type: 'FeatureCollection',
+                        features: []
+                    };
                     for (const street of streetGraph.getLogicalStreets()) {
-                        const bufferedStreet = customBuffer(street.getLineString(), 10, {
+                        const bufferedStreet = customBuffer(street.getLineString(), 7, {
                             units: 'meters',
                             steps: 0,
                             endCapStyle: 'flat'
                         });
-                        if (bufferedStreet) {
-                            debugStore.addGeometry({
-                                geometry: bufferedStreet.type === 'Feature' ? bufferedStreet.geometry : bufferedStreet.features[0].geometry,
-                                color: [255, 0, 0, 100],
-                                lineColor: [0, 0, 255, 255]
-                            });
+                        if (bufferedStreet?.type === 'Feature' && bufferedStreet.geometry.type === 'Polygon') {
+                            bufferedStreets.features.push(bufferedStreet as Feature<Polygon>);
                         }
                     }
 
+                    const bufferedStreetsUnion = union(bufferedStreets);
+                    if (bufferedStreetsUnion && bufferedStreetsUnion.type === 'Feature' && bufferedStreetsUnion.geometry.type === 'Polygon') {
+                        debugStore.addGeometry({
+                            geometry: bufferedStreetsUnion.geometry,
+                            color: [255, 0, 0, 100],
+                            lineColor: [0, 0, 255, 255]
+                        });
+                    }
 
-                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
+                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph, bufferedStreetsUnion! as Feature<Polygon>);
                     
                     const strips: Map<string, Strip[]> = new Map();
                     for (const block of blocks) {
+
+                        debugStore.addGeometry({
+                            geometry: block.polygon.geometry,
+                            color: [0, 255, 0, 40],
+                            lineColor: [0, 0, 255, 255]
+                        });
+
                         const generatedStrips = generateStripsFromBlock(block);
                         for (const [key, strip] of generatedStrips) {
                             if (!strips.has(key)) strips.set(key, []);

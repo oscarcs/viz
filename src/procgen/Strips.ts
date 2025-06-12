@@ -69,7 +69,7 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
-    // Create a multipolygon from the polygon to match the example in app.tsx
+    // TODO: fix the input type handling
     const multiPoly: MultiPolygon = {
         type: 'MultiPolygon',
         coordinates: [block.polygon.geometry.coordinates]
