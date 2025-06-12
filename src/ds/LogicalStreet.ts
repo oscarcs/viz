@@ -1,6 +1,7 @@
 import { Edge } from "./Edge";
 import { Node } from "./Node";
-import { feature, length } from "@turf/turf";
+import { convertLength, feature, length } from "@turf/turf";
+import { LineString } from "geojson";
 
 /**
  * Represents a logical street - a collection of connected road segments
@@ -59,12 +60,12 @@ export class LogicalStreet {
     }
 
     /**
-     * Get the total length of this logical street by summing the lengths of all edges
+     * Get the total length of this logical street by summing the lengths of all edges.
+     * @returns {number} Total length in the same units as the coordinates (e.g., degrees for lat/lon)
      */
     getLength(): number {
         let totalLength = 0;
         this.edges.forEach(edge => {
-            // Calculate distance between from and to nodes
             const dx = edge.to.coordinates[0] - edge.from.coordinates[0];
             const dy = edge.to.coordinates[1] - edge.from.coordinates[1];
             const edgeLength = Math.sqrt(dx * dx + dy * dy);
@@ -77,21 +78,119 @@ export class LogicalStreet {
 
     /**
      * Get the total length of this logical street in meters using Turf.js
-     * This assumes the coordinates are in a geographic coordinate system (lat/lon)
+     * @returns {number} Length in meters
      */
-    getLengthInMeters(): number {
-        const edgesArray = Array.from(this.edges);
-        if (edgesArray.length === 0) return 0;
-       
-        const coordinates = edgesArray
-            .map(edge => [edge.from.coordinates, edge.to.coordinates])
-            .flat();
+    getLengthInMeters(): number {   
+        return convertLength(this.getLength(), 'degrees', 'meters');
+    }
+
+    /**
+     * Get the GeoJSON LineString representation of this logical street.
+     * This will traverse the edges to create a continuous path.
+     * @returns {LineString} GeoJSON LineString feature representing the street
+     */
+    getLineString(): LineString {
+        if (this.edges.size === 0) {
+            return {
+                type: "LineString",
+                coordinates: []
+            };
+        }
+
+        // Get unique edges (avoid symmetric duplicates)
+        const uniqueEdges = new Set<Edge>();
+        const processedIds = new Set<string>();
         
-        const lineString = feature({
+        for (const edge of this.edges) {
+            const edgeId = `${edge.from.id}-${edge.to.id}`;
+            const symmetricId = `${edge.to.id}-${edge.from.id}`;
+            
+            if (!processedIds.has(edgeId) && !processedIds.has(symmetricId)) {
+                uniqueEdges.add(edge);
+                processedIds.add(edgeId);
+                processedIds.add(symmetricId);
+            }
+        }
+
+        if (uniqueEdges.size === 0) {
+            return {
+                type: "LineString",
+                coordinates: []
+            };
+        }
+
+        // Build adjacency map
+        const adjacency = new Map<string, Node[]>();
+        for (const edge of uniqueEdges) {
+            if (!adjacency.has(edge.from.id)) {
+                adjacency.set(edge.from.id, []);
+            }
+            if (!adjacency.has(edge.to.id)) {
+                adjacency.set(edge.to.id, []);
+            }
+            adjacency.get(edge.from.id)!.push(edge.to);
+            adjacency.get(edge.to.id)!.push(edge.from);
+        }
+
+        // Find starting point (endpoint with degree 1, or any node if all have degree 2)
+        let startNode: Node | null = null;
+        for (const [nodeId, neighbors] of adjacency) {
+            if (neighbors.length === 1) {
+                startNode = neighbors[0]; // Get the actual node
+                // Find the node with this ID from the edges
+                for (const edge of uniqueEdges) {
+                    if (edge.from.id === nodeId) {
+                        startNode = edge.from;
+                        break;
+                    }
+                    if (edge.to.id === nodeId) {
+                        startNode = edge.to;
+                        break;
+                    }
+                }
+                break;
+            }
+        }
+
+        // If no endpoint found, start with any node
+        if (!startNode) {
+            startNode = Array.from(uniqueEdges)[0].from;
+        }
+
+        // Traverse the path
+        const coordinates: [number, number][] = [];
+        const visited = new Set<string>();
+        let currentNode = startNode;
+
+        while (currentNode) {
+            coordinates.push([currentNode.coordinates[0], currentNode.coordinates[1]]);
+            
+            const neighbors = adjacency.get(currentNode.id) || [];
+            let nextNode: Node | null = null;
+            
+            for (const neighbor of neighbors) {
+                const edgeKey = `${currentNode.id}-${neighbor.id}`;
+                const reverseEdgeKey = `${neighbor.id}-${currentNode.id}`;
+                
+                if (!visited.has(edgeKey) && !visited.has(reverseEdgeKey)) {
+                    visited.add(edgeKey);
+                    visited.add(reverseEdgeKey);
+                    nextNode = neighbor;
+                    break;
+                }
+            }
+
+            if (!nextNode) {
+                break; // No unvisited neighbors left, exit loop
+            }
+            
+            currentNode = nextNode;
+        }
+
+        return {
             type: "LineString",
             coordinates: coordinates
-        });
-        return length(lineString, { units: 'meters' }) / 2;
+        };
     }
     
     /**
