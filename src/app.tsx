@@ -125,31 +125,7 @@ function Root() {
                     const streets = streetGraph.getStreetFeatureCollection();
                     setStreetsData(streets as any);
 
-                    const bufferedStreets: FeatureCollection<Polygon> = {
-                        type: 'FeatureCollection',
-                        features: []
-                    };
-                    for (const street of streetGraph.getLogicalStreets()) {
-                        const bufferedStreet = customBuffer(street.getLineString(), 7, {
-                            units: 'meters',
-                            steps: 0,
-                            endCapStyle: 'flat'
-                        });
-                        if (bufferedStreet?.type === 'Feature' && bufferedStreet.geometry.type === 'Polygon') {
-                            bufferedStreets.features.push(bufferedStreet as Feature<Polygon>);
-                        }
-                    }
-
-                    const bufferedStreetsUnion = union(bufferedStreets);
-                    if (bufferedStreetsUnion && bufferedStreetsUnion.type === 'Feature' && bufferedStreetsUnion.geometry.type === 'Polygon') {
-                        debugStore.addGeometry({
-                            geometry: bufferedStreetsUnion.geometry,
-                            color: [255, 0, 0, 100],
-                            lineColor: [0, 0, 255, 255]
-                        });
-                    }
-
-                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph, bufferedStreetsUnion! as Feature<Polygon>);
+                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
                     
                     const strips: Map<string, Strip[]> = new Map();
                     for (const block of blocks) {

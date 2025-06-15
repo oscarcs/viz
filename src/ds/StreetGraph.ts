@@ -12,6 +12,7 @@ import {
 } from "geojson";
 import { Block } from "../procgen/Strips";
 import { randomFromArray } from "../util/random";
+import { customBuffer } from "../util/CustomBuffer";
 
 /**
  * Validates the geoJson.
@@ -1035,7 +1036,7 @@ class StreetGraph {
      * Returns blocks; polygons with information about which logical streets bound each polygon
      * @returns Blocks
      */
-    static polygonizeToBlocks(graph: StreetGraph, streetGeometry: Feature<Polygon>): Block[] {
+    static polygonizeToBlocks(graph: StreetGraph): Block[] {
         // Create a copy to avoid modifying the original graph
         // TODO: Figure out to handle cut edges and dangles in the original graph 
         const graphCopy = graph.copy();
@@ -1083,8 +1084,8 @@ class StreetGraph {
                 }
             });
 
-            // Remove the street geometry from the shell
-            const blockPolygon = difference(featureCollection([shell.toPolygon(), streetGeometry]));
+            // Shrink to account for street widths
+            const blockPolygon = customBuffer(shell.toPolygon(), -5, { units: 'meters' });
 
             console.log(blockPolygon);
 
