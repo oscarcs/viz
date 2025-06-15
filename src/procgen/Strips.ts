@@ -10,13 +10,13 @@ import {
     pointToLineDistance,
     lengthToDegrees,
     nearestPointOnLine,
-    distance
+    distance,
+    lineOverlap
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { LogicalStreet } from '../ds/LogicalStreet';
 import { StraightSkeletonBuilder } from "straight-skeleton-geojson";
 import { multipolygonDifference } from "../util/util";
-import { debugStore } from "../debug/DebugStore";
 
 export type Block = {
     polygon: Feature<Polygon>;
@@ -90,12 +90,6 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
     // Use the multipolygonDifference utility to get the contour between the skeleton and its offset
     // This gives us the basic lot shapes with some buffer from the block edge
     const lotContour = multipolygonDifference(straightSkeletonPolygons, offsetSkeleton);
-    
-    debugStore.addGeometry({
-        geometry: lotContour,
-        color: [0, 255, 0, 0],
-        lineColor: [255, 0, 0, 50],
-    });
 
     const faces: Polygon[] = [];
     
@@ -267,9 +261,9 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
                 continue;
             }
 
-            const sharedEdge = findSharedEdgesBetweenStrips(polygon1, polygon2, block);
-
-            if (sharedEdge) {
+            const sharedEdges = findSharedEdgesBetweenStrips(polygon1, polygon2, block);
+            
+            for (const sharedEdge of sharedEdges) {
                 adjacentPairs.push({
                     streetId1: streetIds[i],
                     streetId2: streetIds[j],
@@ -339,41 +333,12 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
  * @param strip2 
  * @param block 
  */
-function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: Block): LineString | null {
-    const coords1 = strip1.coordinates[0];
-    const coords2 = strip2.coordinates[0];
-    const sharedEdgePoints: number[][] = [];
-    
-    // Find all shared edges between the two polygons
-    for (let i = 0; i < coords1.length - 1; i++) {
-        const edge1Start = coords1[i];
-        const edge1End = coords1[i + 1];
-        
-        for (let j = 0; j < coords2.length - 1; j++) {
-            const edge2Start = coords2[j];
-            const edge2End = coords2[j + 1];
-            
-            if (edgesAreEqual(edge1Start, edge1End, edge2Start, edge2End)) {
-                // Add points to shared edge collection if not already present
-                if (!sharedEdgePoints.some(p => 
-                    p[0] === edge1Start[0] && p[1] === edge1Start[1])) {
-                    sharedEdgePoints.push(edge1Start);
-                }
-                if (!sharedEdgePoints.some(p => 
-                    p[0] === edge1End[0] && p[1] === edge1End[1])) {
-                    sharedEdgePoints.push(edge1End);
-                }
-            }
-        }
-    }
-    
-    // If no shared edges found, return null
-    if (sharedEdgePoints.length < 2) {
-        return null;
-    }
-    
-    // Use block geometry to determine correct sort order
+function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: Block): LineString[] {
     const blockBoundary = block.polygon.geometry.coordinates[0];
+
+    const overlapping = lineOverlap(strip1, strip2)
+        .features
+        .map((feature: Feature<LineString>) => feature.geometry);
 
     const getMinDistanceToBlockBoundary = (point: number[]) => {
         let minDist = Infinity;
@@ -387,27 +352,21 @@ function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: B
         return minDist;
     };
 
-    const boundaryPoints = sharedEdgePoints.filter(p =>
-        getMinDistanceToBlockBoundary(p) === 0
-    );
+    const edges = overlapping.filter(edge => {
+        const boundaryPoints = edge.coordinates.filter(p =>
+            getMinDistanceToBlockBoundary(p) === 0 
+        );
+        return edge.coordinates.length > 1 && boundaryPoints.length > 0;
+    });
 
-    // If there's no point on the block boundary, it will break corner swapping logic
-    if (boundaryPoints.length === 0) {
-        return null;
+    for (const edge of edges) {
+        if (getMinDistanceToBlockBoundary(edge.coordinates[0]) !== 0) {
+            // Ensure the first point is on the block boundary
+            edge.coordinates.reverse();
+        }
     }
     
-    // Sort points: boundary points first, then by increasing distance from boundary
-    const sortedPoints = sharedEdgePoints.sort((a, b) => {
-        const aDist = getMinDistanceToBlockBoundary(a);
-        const bDist = getMinDistanceToBlockBoundary(b);
-        
-        return aDist - bDist;
-    });
-    
-    return {
-        type: 'LineString',
-        coordinates: sortedPoints
-    };
+    return edges;
 }
 
 function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2End: number[]): boolean {
