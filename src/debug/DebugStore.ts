@@ -5,6 +5,8 @@ export type DebugGeometry = {
     color?: [number, number, number, number];
     lineColor?: [number, number, number, number];
     label?: string;
+    radius?: number;
+    width?: number;
 };
 
 class DebugStore {

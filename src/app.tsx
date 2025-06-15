@@ -127,13 +127,6 @@ function Root() {
                     
                     const strips: Map<string, Strip[]> = new Map();
                     for (const block of blocks) {
-
-                        debugStore.addGeometry({
-                            geometry: block.polygon.geometry,
-                            color: [0, 255, 0, 40],
-                            lineColor: [0, 0, 255, 255]
-                        });
-
                         const generatedStrips = generateStripsFromBlock(block);
                         for (const [key, strip] of generatedStrips) {
                             if (!strips.has(key)) strips.set(key, []);
@@ -164,7 +157,9 @@ function Root() {
                     properties: {
                         label: debug.label || `Debug ${index}`,
                         color: debug.color || [255, 255, 0, 255],
-                        lineColor: debug.lineColor || [0, 0, 255, 255]
+                        lineColor: debug.lineColor || [0, 0, 255, 255],
+                        radius: debug.radius || 5,
+                        width: debug.width || 0.5
                     }
                 }))
             },
@@ -173,8 +168,8 @@ function Root() {
             extruded: false,
             pointRadiusMinPixels: 5,
             pointRadiusMaxPixels: 10,
-            getLineWidth: 0.5,
-            getPointRadius: 5,
+            getLineWidth: (feature: any) => feature.properties.width,
+            getPointRadius: (feature: any) => feature.properties.radius,
             getFillColor: (feature: any) => feature.properties.color,
             getLineColor: (feature: any) => feature.properties.lineColor,
             pickable: false
