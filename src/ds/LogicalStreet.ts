@@ -18,6 +18,8 @@ export class LogicalStreet {
      * Width of the street in meters
      */
     public width: number;
+
+    private lineString?: LineString;
     
     constructor(id: string, color?: [number, number, number, number], width?: number) {
         this.id = id;
@@ -35,6 +37,8 @@ export class LogicalStreet {
         if (edge.symmetric) {
             this.edges.add(edge.symmetric);
         }
+
+        this.lineString = undefined; // Invalidate cached LineString
     }
     
     /**
@@ -45,6 +49,8 @@ export class LogicalStreet {
         if (edge.symmetric) {
             this.edges.delete(edge.symmetric);
         }
+
+        this.lineString = undefined; // Invalidate cached LineString
     }
     
     /**
@@ -97,6 +103,11 @@ export class LogicalStreet {
      * @returns {LineString} GeoJSON LineString feature representing the street
      */
     getLineString(): LineString {
+        if (this.lineString) {
+            console.debug("Returning cached LineString for LogicalStreet", this.id);
+            return this.lineString;
+        }
+
         if (this.edges.size === 0) {
             return {
                 type: "LineString",
@@ -194,9 +205,11 @@ export class LogicalStreet {
             currentNode = nextNode;
         }
 
-        return {
-            type: "LineString",
+        const ls = {
+            type: "LineString" as const,
             coordinates: coordinates
         };
+        this.lineString = ls;
+        return ls;
     }
 }
