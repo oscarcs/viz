@@ -9,7 +9,8 @@ import {
     point,
     pointToLineDistance,
     lengthToDegrees,
-    nearestPointOnLine
+    nearestPointOnLine,
+    distance
 } from '@turf/turf';
 import polygonSlice from '../util/polygonSlice';
 import { LogicalStreet } from '../ds/LogicalStreet';
@@ -164,7 +165,7 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], block: Block): Map<stri
         let isAdjacent = false;
         for (const street of block.boundingStreets) {
             // TODO: Dial this in based on the potential street-to-boundary geometry.
-            const adjacencyTolerance = street.width;
+            const adjacencyTolerance = street.width * 1.5;
             
             // Check if any boundary segment of the face lies along this street
             for (const edge of street.edges) {
@@ -318,12 +319,6 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
             continue;
         }
 
-        debugStore.addGeometry({
-            geometry: slicingLine,
-            color: [0, 255, 0, 0],
-            lineColor: [0, 0, 255, 255],
-        });
-
         regions.push({
             slicingLine,
             exteriorPoint,
@@ -358,7 +353,6 @@ function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: B
             const edge2Start = coords2[j];
             const edge2End = coords2[j + 1];
             
-            // Check if edges are the same using existing helper
             if (edgesAreEqual(edge1Start, edge1End, edge2Start, edge2End)) {
                 // Add points to shared edge collection if not already present
                 if (!sharedEdgePoints.some(p => 
@@ -384,13 +378,23 @@ function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: B
     const getMinDistanceToBlockBoundary = (point: number[]) => {
         let minDist = Infinity;
         for (const boundaryPoint of blockBoundary) {
-            const dist = (point[0] - boundaryPoint[0]) ** 2 + (point[1] - boundaryPoint[1]) ** 2;
+            const dist = distance(point, boundaryPoint, { units: 'meters' });
+
             if (dist < minDist) {
                 minDist = dist;
             }
         }
         return minDist;
     };
+
+    const boundaryPoints = sharedEdgePoints.filter(p =>
+        getMinDistanceToBlockBoundary(p) === 0
+    );
+
+    // If there's no point on the block boundary, it will break corner swapping logic
+    if (boundaryPoints.length === 0) {
+        return null;
+    }
     
     // Sort points: boundary points first, then by increasing distance from boundary
     const sortedPoints = sharedEdgePoints.sort((a, b) => {
