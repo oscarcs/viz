@@ -20,7 +20,10 @@ import { debugStore } from "../debug/DebugStore";
 export type Block = {
     polygon: Feature<Polygon>;
     boundingStreets: LogicalStreet[];
-    maxLotDepth: number; // Maximum depth of the lot from the street edge in degrees 
+    /**
+     * Maximum depth of the lot from the street edge in meters.
+     */
+    maxLotDepth: number;
 };
 
 export type Strip = {
@@ -49,7 +52,7 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
     }
     else if (faces.length > 1) {
         // Step 2: Calculate the alpha-strips for the skeleton faces
-        const alphaStrips = calculateAlphaStripsFromFaces(faces, block.boundingStreets);
+        const alphaStrips = calculateAlphaStripsFromFaces(faces, block);
     
         // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
         const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
@@ -95,25 +98,20 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
 
     const faces: Polygon[] = [];
     
-    if (area(lotContour) === area(straightSkeletonPolygons)) {
-        return [block.polygon.geometry];
-    }
-    else {
-        if (lotContour && lotContour.coordinates) {
-            for (const coords of lotContour.coordinates) {
-                // Each coordinate set should form a polygon
-                if (coords && coords.length > 0) {
-                    const lot: Polygon = {
-                        type: 'Polygon',
-                        coordinates: coords
-                    };
-                    
-                    const lotFeature = feature(lot);
-                    
-                    // Only add lots with sufficient area (filter out tiny fragments)
-                    if (lotFeature.geometry && area(lotFeature.geometry) > 0.0001) {
-                        faces.push(lotFeature.geometry as Polygon);
-                    }
+    if (lotContour && lotContour.coordinates) {
+        for (const coords of lotContour.coordinates) {
+            // Each coordinate set should form a polygon
+            if (coords && coords.length > 0) {
+                const lot: Polygon = {
+                    type: 'Polygon',
+                    coordinates: coords
+                };
+                
+                const lotFeature = feature(lot);
+                
+                // Only add lots with sufficient area
+                if (lotFeature.geometry && area(lotFeature.geometry) > 0.0001) {
+                    faces.push(lotFeature.geometry as Polygon);
                 }
             }
         }
@@ -122,51 +120,69 @@ function calculateFacesFromBlock(block: Block): Polygon[] {
     return faces;
 }
 
-function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: LogicalStreet[]
-): Map<string, Polygon[]> {
+function calculateAlphaStripsFromFaces(faces: Polygon[], block: Block): Map<string, Polygon[]> {
     // Alpha-strips are lists of faces that are adjacent to each logical street
     const alphaStrips = new Map<string, Polygon[]>();
     
     // Initialize alpha-strips for each bounding street
-    for (const street of boundingStreets) {
+    for (const street of block.boundingStreets) {
         alphaStrips.set(street.id, []);
     }
     
-    // For each face, determine which logical street(s) it's adjacent to
-    // A face is adjacent to a street if it shares boundary segments with that street
-    // By the straight skeleton property, every face is guaranteed to be adjacent 
-    // to at least one of the bounding logical streets
     for (const face of faces) {
-        // Get the outer boundary coordinates of the face
         const faceCoords = face.coordinates[0];
+        const blockCoords = block.polygon.geometry.coordinates[0];
+
+        // Each face will have an exterior segment that is adjacent to the block boundary
+        let exteriorSegment: LineString | null = null;
+
+        for (let i = 0; i < blockCoords.length - 1; i++) {
+            const blockStart = blockCoords[i];
+            const blockEnd = blockCoords[i + 1];
+            
+            // Check if the face boundary segment is adjacent to the block boundary segment
+            for (let j = 0; j < faceCoords.length - 1; j++) {
+                const faceStart = faceCoords[j];
+                const faceEnd = faceCoords[j + 1];
+                
+                // Check if this face edge segment is close to and aligned with the block edge
+                const prospectiveBlockLine: Feature<LineString> = lineString([blockStart, blockEnd]);
+                if (isSegmentAdjacentToLineString(faceStart, faceEnd, prospectiveBlockLine)) {
+                    exteriorSegment = prospectiveBlockLine.geometry;
+                    break;
+                }
+            }
+            
+            if (exteriorSegment) break;
+        }
+
+        if (!exteriorSegment) {
+            console.warn(`No exterior segment found for face in block`);
+            continue;
+        }
         
-        for (const street of boundingStreets) {
-            let isAdjacent = false;
+        let isAdjacent = false;
+        for (const street of block.boundingStreets) {
+            // TODO: Dial this in based on the potential street-to-boundary geometry.
+            const adjacencyTolerance = street.width;
             
             // Check if any boundary segment of the face lies along this street
             for (const edge of street.edges) {
                 const streetStart = edge.from.coordinates;
                 const streetEnd = edge.to.coordinates;
                 
-                // Check if any segment of the face boundary coincides with this street edge
-                for (let i = 0; i < faceCoords.length - 1; i++) {
-                    const faceStart = faceCoords[i];
-                    const faceEnd = faceCoords[i + 1];
-                    
-                    // Check if this face edge segment is close to and aligned with the street edge
-                    const prospectiveStreetLine: Feature<LineString> = lineString([streetStart, streetEnd]);
-                    if (isSegmentAdjacentToStreetEdge(faceStart, faceEnd, prospectiveStreetLine)) {
-                        isAdjacent = true;
-                        break;
-                    }
+                // Check if the exterior segment of the face is parallel to a street edge
+                if (isSegmentAdjacentToLineString(streetStart, streetEnd, feature(exteriorSegment), adjacencyTolerance)) {
+                    alphaStrips.get(street.id)?.push(face);
+                    isAdjacent = true;
+                    break;
                 }
-                
-                if (isAdjacent) break;
             }
             
-            if (isAdjacent) {
-                alphaStrips.get(street.id)?.push(face);
-            }
+        }
+
+        if (!isAdjacent) {
+            console.warn(`Face not adjacent to any street in block`);
         }
     }
 
@@ -174,23 +190,22 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], boundingStreets: Logica
 }
 
 /**
- * Check if a face edge segment is adjacent to a street edge
- * Two segments are considered adjacent if they overlap or are very close
+ * Check if an edge segment is adjacent to a given LineString.
  */
-function isSegmentAdjacentToStreetEdge(
-    faceStart: number[], 
-    faceEnd: number[], 
-    streetLine: Feature<LineString>,
-): boolean {
-    const tolerance = 0.0001; // Tolerance for coordinate proximity
+function isSegmentAdjacentToLineString(segment1: number[], segment2: number[], line: Feature<LineString>, tolerance: number = 1): boolean {
+    const lineCoords = line.geometry.coordinates;
     
-    // Check if the face segment endpoints are on or very close to the street edge
-    const startDistanceToStreet = pointToLineDistance(faceStart, streetLine, { units: 'degrees' });
-    const endDistanceToStreet = pointToLineDistance(faceEnd, streetLine, { units: 'degrees' });
+    if (lineCoords.length < 2) {
+        console.warn('LineString must have at least two coordinates to check adjacency.');
+        return false;
+    }
     
-    // If both endpoints of the face segment are close to the street edge, 
-    // then the face segment is adjacent to the street
-    return (startDistanceToStreet < tolerance && endDistanceToStreet < tolerance);
+    const dist1 = pointToLineDistance(segment1, line, { units: 'meters' });
+    const dist2 = pointToLineDistance(segment2, line, { units: 'meters' });
+    
+    console.log(dist1, dist2, tolerance);
+
+    return (dist1 < tolerance && dist2 < tolerance);
 }
 
 function mergeAlphaStripGeometry(faces: Polygon[], streetId: string): Polygon {

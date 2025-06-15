@@ -11,7 +11,7 @@ import {
     Tooltip
 } from "@deck.gl-community/editable-layers";
 import { distance } from '@turf/turf';
-import StreetGraph from '../ds/StreetGraph';
+import StreetGraph, { SNAP_TOLERANCE } from '../ds/StreetGraph';
 
 export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
@@ -20,7 +20,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
     
     // Snapping properties
     private shiftPressed = false;
-    private snapThreshold = 0.0002; // Distance threshold for snapping in map units
+    private snapThreshold = SNAP_TOLERANCE;
     private snapTarget: { point: Position; type: 'node' | 'edge' } | null = null;
     private graph: StreetGraph | null = null;
     

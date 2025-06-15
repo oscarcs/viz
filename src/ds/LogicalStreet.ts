@@ -1,7 +1,8 @@
 import { Edge } from "./Edge";
 import { Node } from "./Node";
-import { convertLength, feature, length } from "@turf/turf";
+import { convertLength } from "@turf/turf";
 import { LineString } from "geojson";
+import { DEFAULT_STREET_WIDTH } from "./StreetGraph";
 
 /**
  * Represents a logical street - a collection of connected road segments
@@ -12,10 +13,15 @@ export class LogicalStreet {
     public name?: string;
     public color: [number, number, number, number];
     public edges: Set<Edge>;
+    /**
+     * Width of the street in meters
+     */
+    public width: number;
     
-    constructor(id: string, color?: [number, number, number, number]) {
+    constructor(id: string, color?: [number, number, number, number], width?: number) {
         this.id = id;
         this.color = color || this.generateRandomColor();
+        this.width = width || DEFAULT_STREET_WIDTH;
         this.edges = new Set();
     }
     

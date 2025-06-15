@@ -2,7 +2,7 @@ import { Node } from "./Node";
 import { Edge } from "./Edge";
 import { EdgeRing } from "./EdgeRing";
 import { LogicalStreet } from "./LogicalStreet";
-import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection, difference } from "@turf/turf";
+import { flattenEach, coordReduce, featureOf, AllGeoJSON, featureCollection } from "@turf/turf";
 import {
     FeatureCollection,
     LineString,
@@ -39,9 +39,15 @@ function validateGeoJson(geoJson: AllGeoJSON) {
 // Small epsilon helps handle snapping precision issues while maintaining polygonization compatibility
 const EPSILON = 1e-10;
 
-// Larger tolerance for snapping endpoints to nearby edges
-// This should match the snapThreshold in DrawStreetMode (0.0002)
-const SNAP_TOLERANCE = 0.0002;
+/**
+ * Tolerance for snapping endpoints to nearby edges in degrees.
+ */
+export const SNAP_TOLERANCE = 0.0002;
+
+/**
+ * Default street width of logical streets in meters.
+ */
+export const DEFAULT_STREET_WIDTH = 10;
 
 /**
  * Represents a planar graph of edges and nodes that can be used to compute a polygonization.
@@ -379,7 +385,8 @@ class StreetGraph {
      */
     private createLogicalStreet(): LogicalStreet {
         const streetId = `street_${this.streetIdCounter++}`;
-        const street = new LogicalStreet(streetId);
+        //TODO: street widths should be configurable
+        const street = new LogicalStreet(streetId, undefined, DEFAULT_STREET_WIDTH);
         this.logicalStreets.set(streetId, street);
         return street;
     }
@@ -1064,6 +1071,7 @@ class StreetGraph {
             }
         });
 
+        // TODO: this is slow
         // For each shell, determine which logical streets bound it
         return shells.map((shell) => {
             const boundingStreets = new Set<LogicalStreet>();
@@ -1085,14 +1093,13 @@ class StreetGraph {
             });
 
             // Shrink to account for street widths
-            const blockPolygon = customBuffer(shell.toPolygon(), -5, { units: 'meters' });
-
-            console.log(blockPolygon);
+            // TODO: Properly handle variable street widths
+            const blockPolygon = customBuffer(shell.toPolygon(), -(DEFAULT_STREET_WIDTH / 2), { units: 'meters' });
 
             return {
                 polygon: blockPolygon! as Feature<Polygon>,
                 boundingStreets: Array.from(boundingStreets),
-                maxLotDepth: randomFromArray([40, 50, 60])
+                maxLotDepth: 60
             };
         });
     }

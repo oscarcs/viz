@@ -1,4 +1,5 @@
 import BufferOp from "jsts/org/locationtech/jts/operation/buffer/BufferOp";
+import BufferParameters from "jsts/org/locationtech/jts/operation/buffer/BufferParameters";
 import GeoJSONReader from "jsts/org/locationtech/jts/io/GeoJSONReader";
 import GeoJSONWriter from "jsts/org/locationtech/jts/io/GeoJSONWriter";
 import geoAzimuthalEquidistant from "d3-geo/src/projection/azimuthalEquidistant";
@@ -150,7 +151,11 @@ function bufferFeature(
             throw new Error("endCapStyle must be 'flat', 'round' or 'square'");
     }
 
-    let buffered = BufferOp.bufferOp(geom, distance, steps, endCapNum);
+    const joinStyle = 2;
+    const mitreLimit = 5.0; // default
+    let bufferParams = new BufferParameters(steps, endCapNum, joinStyle, mitreLimit);
+
+    let buffered = BufferOp.bufferOp(geom, distance, bufferParams);
     
     const writer = new GeoJSONWriter();
     let bufferedGeoJson: Polygon = writer.write(buffered) as Polygon;

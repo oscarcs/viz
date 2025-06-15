@@ -16,9 +16,7 @@ import { generateStripsFromBlock, Strip } from './procgen/Strips';
 import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
 import { DebugGeometry, debugStore } from './debug/DebugStore';
-import { customBuffer } from './util/CustomBuffer';
-import { Feature, FeatureCollection, Polygon } from 'geojson';
-import { union } from '@turf/turf';
+import { FeatureCollection } from 'geojson';
 
 const INITIAL_VIEW_STATE = {
     latitude: 0,
