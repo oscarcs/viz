@@ -203,8 +203,6 @@ function isSegmentAdjacentToLineString(segment1: number[], segment2: number[], l
     const dist1 = pointToLineDistance(segment1, line, { units: 'meters' });
     const dist2 = pointToLineDistance(segment2, line, { units: 'meters' });
     
-    console.log(dist1, dist2, tolerance);
-
     return (dist1 < tolerance && dist2 < tolerance);
 }
 
@@ -217,12 +215,12 @@ function mergeAlphaStripGeometry(faces: Polygon[], streetId: string): Polygon {
     const unionResult = union(featuresToUnion);
 
     if (!unionResult) {
-        console.warn(`Union failed for street ${streetId} or resulted in invalid geometry.`);
+        console.warn(`Alpha strip union failed for street ${streetId} or resulted in invalid geometry.`);
         return faces[0];
     }
 
     if (!unionResult.geometry || unionResult.geometry.type !== 'Polygon') {
-        console.warn(`Union result for street ${streetId} is not a polygon:`, JSON.stringify(unionResult, null, 2));
+        console.warn(`Alpha strip union result for street ${streetId} is not a polygon:`, JSON.stringify(unionResult, null, 2));
         return faces[0];
     }
     
