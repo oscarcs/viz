@@ -22,3 +22,12 @@ export function randomFromArray<T>(arr: T[]): T {
     const randomIndex = Math.floor(Math.random() * arr.length);
     return arr[randomIndex];
 }
+
+export function randomColor(): [number, number, number, number] {
+    return [
+        Math.random() * 255,
+        Math.random() * 255,
+        Math.random() * 255,
+        255
+    ];
+}

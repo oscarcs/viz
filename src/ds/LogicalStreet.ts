@@ -3,6 +3,7 @@ import { Node } from "./Node";
 import { convertLength } from "@turf/turf";
 import { LineString } from "geojson";
 import { DEFAULT_STREET_WIDTH } from "./StreetGraph";
+import { randomColor } from "../util/random";
 
 /**
  * Represents a logical street - a collection of connected road segments
@@ -20,7 +21,7 @@ export class LogicalStreet {
     
     constructor(id: string, color?: [number, number, number, number], width?: number) {
         this.id = id;
-        this.color = color || this.generateRandomColor();
+        this.color = color || randomColor();
         this.width = width || DEFAULT_STREET_WIDTH;
         this.edges = new Set();
     }
@@ -197,17 +198,5 @@ export class LogicalStreet {
             type: "LineString",
             coordinates: coordinates
         };
-    }
-    
-    /**
-     * Generate a random color for this street
-     */
-    private generateRandomColor(): [number, number, number, number] {
-        return [
-            Math.random() * 255,
-            Math.random() * 255,
-            Math.random() * 255,
-            255
-        ];
     }
 }
