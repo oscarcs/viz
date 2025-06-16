@@ -1,8 +1,9 @@
 import { LineString, Polygon, Feature } from "geojson";
-import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap, featureCollection, union, length, transformTranslate, convex } from "@turf/turf";
+import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap, featureCollection, union, length, transformTranslate } from "@turf/turf";
 import { Color } from "deck.gl";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
+import { customBuffer } from "../util/CustomBuffer";
 import { Strip } from "./Strips";
 import { debugStore } from "../debug/DebugStore";
 
@@ -38,7 +39,7 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
         const polygonNodes = splitStripIntoPolygonNodes(strip, rays, edgesFacingStreet);
 
         for (const node of polygonNodes) {
-            const translated = transformTranslate(node.geometry, 300, 0, { units: 'meters' });
+            const translated = transformTranslate(node.geometry, 500, 0, { units: 'meters' });
             debugStore.addGeometry({
                 geometry: translated,
                 color: node.isValid ? [0, 255, 0, 128] : [255, 0, 0, 128],
@@ -623,18 +624,18 @@ function mergePolygonNodes(
             return { success: true, mergedNode };
         }
         else {
-            // Union failed to produce a single polygon, try convex hull as fallback
-            console.log(`Union failed for ${invalidNode.id} and ${adjacentNode.id}, trying convex hull fallback`);
+            // Union failed to produce a single polygon, try buffer-union-erode fallback
+            console.log(`Union failed for ${invalidNode.id} and ${adjacentNode.id}, trying buffer-union-erode fallback`);
             
-            const convexHull = convex(featureCollection([feature(invalidNode.geometry), feature(adjacentNode.geometry)]));
+            const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
             
-            if (convexHull && convexHull.geometry && convexHull.geometry.type === 'Polygon') {
-                console.log(`Convex hull fallback successful for ${invalidNode.id} and ${adjacentNode.id}`);
+            if (bufferMerged) {
+                console.log(`Buffer-union-erode fallback successful for ${invalidNode.id} and ${adjacentNode.id}`);
                 
-                const isValid = validatePolygon(convexHull.geometry, edgesFacingStreet);
+                const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
                 const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}-convex-${invalidNode.id}`,
-                    geometry: convexHull.geometry,
+                    id: `${adjacentNode.id}-buffered-${invalidNode.id}`,
+                    geometry: bufferMerged,
                     adjacentEdges: new Map(),
                     isValid
                 };
@@ -644,24 +645,24 @@ function mergePolygonNodes(
             else {
                 return { 
                     success: false, 
-                    error: `Both union and convex hull operations failed to produce a valid polygon`
+                    error: `Both union and buffer-union-erode operations failed to produce a valid polygon`
                 };
             }
         }
     }
     catch (error) {
-        console.log(`Union threw error for ${invalidNode.id} and ${adjacentNode.id}, trying convex hull fallback`);
+        console.log(`Union threw error for ${invalidNode.id} and ${adjacentNode.id}, trying buffer-union-erode fallback`);
         
         try {
-            const convexHull = convex(featureCollection([feature(invalidNode.geometry), feature(adjacentNode.geometry)]));
+            const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
             
-            if (convexHull && convexHull.geometry && convexHull.geometry.type === 'Polygon') {
-                console.log(`Convex hull fallback successful after union error for ${invalidNode.id} and ${adjacentNode.id}`);
+            if (bufferMerged) {
+                console.log(`Buffer-union-erode fallback successful after union error for ${invalidNode.id} and ${adjacentNode.id}`);
                 
-                const isValid = validatePolygon(convexHull.geometry, edgesFacingStreet);
+                const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
                 const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}-convex-${invalidNode.id}`,
-                    geometry: convexHull.geometry,
+                    id: `${adjacentNode.id}-buffered-${invalidNode.id}`,
+                    geometry: bufferMerged,
                     adjacentEdges: new Map(),
                     isValid
                 };
@@ -671,16 +672,70 @@ function mergePolygonNodes(
             else {
                 return { 
                     success: false, 
-                    error: `Union failed with error and convex hull fallback also failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+                    error: `Union failed with error and buffer-union-erode fallback also failed: ${error instanceof Error ? error.message : 'Unknown error'}`
                 };
             }
         }
-        catch (convexError) {
+        catch (fallbackError) {
             return { 
                 success: false, 
-                error: `Both union and convex hull operations failed: ${error instanceof Error ? error.message : 'Unknown error'}, convex error: ${convexError instanceof Error ? convexError.message : 'Unknown convex error'}`
+                error: `All merge operations failed: ${error instanceof Error ? error.message : 'Unknown error'}, fallback error: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown fallback error'}`
             };
         }
+    }
+}
+
+/**
+ * Attempts to merge polygons using a buffer-union-erode strategy.
+ * This is more robust than convex hull as it preserves the original shape better.
+ * @param polygons Array of polygon geometries to merge
+ * @param tolerance Buffer distance in meters (default: 1m)
+ * @returns Merged polygon or null if operation fails
+ */
+function bufferUnionErode(polygons: Polygon[], tolerance: number = 1): Polygon | null {
+    try {
+        if (polygons.length === 0) return null;
+        if (polygons.length === 1) return polygons[0];
+
+        // Step 1: Buffer slightly to close gaps
+        const buffered: Polygon[] = [];
+        for (const poly of polygons) {
+            const bufferedResult = customBuffer(poly, tolerance, { units: 'meters' });
+            if (bufferedResult && bufferedResult.type === 'Feature' && bufferedResult.geometry.type === 'Polygon') {
+                buffered.push(bufferedResult.geometry);
+            }
+            else {
+                // If buffer fails, use original polygon
+                buffered.push(poly);
+            }
+        }
+        
+        // Step 2: Union the buffered polygons
+        let result = feature(buffered[0]);
+        for (let i = 1; i < buffered.length; i++) {
+            const unionResult = union(featureCollection([result, feature(buffered[i])]));
+            if (unionResult && unionResult.geometry.type === 'Polygon') {
+                result = feature(unionResult.geometry as Polygon);
+            }
+            else {
+                // If union fails at any step, return null
+                return null;
+            }
+        }
+        
+        // Step 3: Erode back to original size
+        if (result.geometry.type === 'Polygon') {
+            const erodedResult = customBuffer(result.geometry, -tolerance, { units: 'meters' });
+            if (erodedResult && erodedResult.type === 'Feature' && erodedResult.geometry.type === 'Polygon') {
+                return erodedResult.geometry;
+            }
+        }
+        
+        return null;
+    }
+    catch (error) {
+        console.warn('Buffer-union-erode failed:', error);
+        return null;
     }
 }
 
