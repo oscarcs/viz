@@ -159,7 +159,7 @@ function calculateAlphaStripsFromFaces(faces: Polygon[], block: Block): Map<stri
         let isAdjacent = false;
         for (const street of block.boundingStreets) {
             // TODO: Dial this in based on the potential street-to-boundary geometry.
-            const adjacencyTolerance = street.width * 1.5;
+            const adjacencyTolerance = street.width * 2;
             
             // Check if any boundary segment of the face lies along this street
             for (const edge of street.edges) {
@@ -487,8 +487,13 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
         const sourceStrip = betaStrips.get(region.fromStreetId);
         const destinationStrip = betaStrips.get(region.toStreetId);
         
-        if (!sourceStrip || !destinationStrip) {
-            console.warn(`Strip not found for IDs: ${region.fromStreetId}, ${region.toStreetId}`);
+        if (!sourceStrip) {
+            console.warn(`Source strip not found for ID: ${region.fromStreetId}`);
+            continue;
+        }
+
+        if (!destinationStrip) {
+            console.warn(`Destination strip not found for ID: ${region.toStreetId}`);
             continue;
         }
                 

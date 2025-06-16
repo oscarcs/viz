@@ -1,9 +1,11 @@
-import { LineString, Polygon } from "@deck.gl-community/editable-layers";
-import { lengthToDegrees, feature, cleanCoords, lineString, pointToLineDistance, area } from "@turf/turf";
+import { LineString, Polygon, Feature } from "geojson";
+import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap } from "@turf/turf";
 import { Color } from "deck.gl";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
 import { Strip } from "./Strips";
+import { debugStore } from "../debug/DebugStore";
+import { randomColor } from "../util/random";
 
 export type Lot = {
     geometry: Polygon;
@@ -17,8 +19,10 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
     const lots: Lot[] = [];
 
     for (const strip of strips) {
-        const rays = calculateSplittingRays(street, strip);
-        lots.push(...splitStripIntoLots(strip, street, rays));
+        const rays = calculateSplittingRays(strip);
+        const polygons = splitStripIntoPolygons(strip, street, rays);
+        const postProcessedPolygons = postProcessLotPolygons(polygons, street);
+        lots.push(...generateLots(postProcessedPolygons, street));
     }
 
     return lots;
@@ -30,12 +34,12 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
  * @param strip Strip
  * @returns A set of rays (LineStrings) that will be used to split the strip into lots.
  */
-function calculateSplittingRays(street: LogicalStreet, strip: Strip): LineString[] {
+function calculateSplittingRays(strip: Strip): LineString[] {
     const rays: LineString[] = [];
-    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 5, 'meters');
+    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 10, 'meters');
     const lotWidth = lengthToDegrees(25, 'meters');
 
-    const edgesFacingStreet = findStripEdgesFacingStreet(street, strip);
+    const edgesFacingStreet = findStripEdgesFacingStreet(strip);
     if (edgesFacingStreet) {
         // Traverse the edges facing the street. Every lotWidth meters, create a ray.
         const streetEdgeCoords = edgesFacingStreet.coordinates;
@@ -76,7 +80,8 @@ function calculateSplittingRays(street: LogicalStreet, strip: Strip): LineString
                         rays.push(ray);
                     }
                     break;
-                } else {
+                }
+                else {
                     // Move to next segment
                     segmentStartDistance += segmentLength;
                     currentSegmentIndex++;
@@ -96,54 +101,98 @@ function calculateSplittingRays(street: LogicalStreet, strip: Strip): LineString
  * @param strip Strip
  * @returns A line string representing the edges of the strip that face the street, or null if none found.
  */
-function findStripEdgesFacingStreet(street: LogicalStreet, strip: Strip): LineString | null {
-    const stripCoords = strip.polygon.coordinates[0];
-    const sharedPoints: number[][] = [];
-    const tolerance = 1e-10;
+function findStripEdgesFacingStreet(strip: Strip): LineString | null {
+    const blockBoundary = strip.block.polygon.geometry;
 
-    // Check each edge of the strip polygon against each edge of the logical street
-    for (let i = 0; i < stripCoords.length - 1; i++) {
-        const stripStart = stripCoords[i];
-        const stripEnd = stripCoords[i + 1];
+    const overlapping = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
+        .features
+        .map((feature: Feature<LineString>) => feature.geometry);
+
+    const combined = stitchLineStrings(overlapping);
+
+    return combined;
+}
+
+/**
+ * Stitch multiple LineStrings together into a single LineString.
+ * Input line strings should be connected end-to-end to form a lineString with no cycles.
+ * @param lines 
+ * @returns Combined LineString or null if no lines provided.
+ */
+function stitchLineStrings(lines: LineString[]): LineString | null {
+    if (lines.length === 0) return null;
+    if (lines.length === 1) return lines[0];
+    
+    const tolerance = 1e-10;
+    
+    // Helper function to check if two points are the same
+    const pointsEqual = (p1: number[], p2: number[]) => {
+        return Math.abs(p1[0] - p2[0]) < tolerance && Math.abs(p1[1] - p2[1]) < tolerance;
+    };
+    
+    // Start with the first line string
+    let result = [...lines[0].coordinates];
+    const used = new Set<number>();
+    used.add(0);
+    
+    while (used.size < lines.length) {
+        const currentStart = result[0];
+        const currentEnd = result[result.length - 1];
+        let found = false;
         
-        // Check against all edges in the logical street
-        for (const edge of street.edges) {
-            const streetStart = edge.from.coordinates;
-            const streetEnd = edge.to.coordinates;
+        // Look for a line that connects to either end of our current result
+        for (let i = 1; i < lines.length; i++) {
+            if (used.has(i)) continue;
             
-            // Check if the strip edge is a subsegment of or coincident with the street edge
-            if (isEdgeSubsegment(stripStart, stripEnd, streetStart, streetEnd, tolerance)) {
-                // Add the strip edge points if not already present
-                if (!sharedPoints.some(p => 
-                    Math.abs(p[0] - stripStart[0]) < tolerance && Math.abs(p[1] - stripStart[1]) < tolerance)) {
-                    sharedPoints.push(stripStart);
-                }
-                if (!sharedPoints.some(p => 
-                    Math.abs(p[0] - stripEnd[0]) < tolerance && Math.abs(p[1] - stripEnd[1]) < tolerance)) {
-                    sharedPoints.push(stripEnd);
-                }
-                break; // Found a match for this strip edge
+            const lineCoords = lines[i].coordinates;
+            const lineStart = lineCoords[0];
+            const lineEnd = lineCoords[lineCoords.length - 1];
+            
+            // Check if this line connects to the end of our result
+            if (pointsEqual(currentEnd, lineStart)) {
+                // Append this line (skip the first point to avoid duplication)
+                result.push(...lineCoords.slice(1));
+                used.add(i);
+                found = true;
+                break;
             }
+            else if (pointsEqual(currentEnd, lineEnd)) {
+                // Append this line in reverse (skip the last point to avoid duplication)
+                const reversedCoords = [...lineCoords].reverse();
+                result.push(...reversedCoords.slice(1));
+                used.add(i);
+                found = true;
+                break;
+            }
+            else if (pointsEqual(currentStart, lineEnd)) {
+                // Prepend this line (skip the last point to avoid duplication)
+                result = [...lineCoords.slice(0, -1), ...result];
+                used.add(i);
+                found = true;
+                break;
+            }
+            else if (pointsEqual(currentStart, lineStart)) {
+                // Prepend this line in reverse (skip the first point to avoid duplication)
+                const reversedCoords = [...lineCoords].reverse();
+                result = [...reversedCoords.slice(0, -1), ...result];
+                used.add(i);
+                found = true;
+                break;
+            }
+        }
+        
+        if (!found) {
+            // If we can't find a connecting line, we might have disconnected segments
+            // Just return what we have so far
+            break;
         }
     }
     
-    if (sharedPoints.length < 2) {
-        return null;
-    }
-    
-    // Sort points along the street direction to create a proper line string
-    // For simplicity, we'll sort by distance from the first point
-    const firstPoint = sharedPoints[0];
-    sharedPoints.sort((a, b) => {
-        const distA = Math.sqrt((a[0] - firstPoint[0]) ** 2 + (a[1] - firstPoint[1]) ** 2);
-        const distB = Math.sqrt((b[0] - firstPoint[0]) ** 2 + (b[1] - firstPoint[1]) ** 2);
-        return distA - distB;
-    });
-    
-    return {
-        type: 'LineString',
-        coordinates: sharedPoints
-    };
+    // Create a new LineString from the stitched coordinates
+    const stitchedLine = lineString(result);
+    // Clean coordinates to remove any duplicate consecutive points
+    const cleanedLine = cleanCoords(stitchedLine);
+    return cleanedLine.geometry;
 }
 
 /**
@@ -191,21 +240,9 @@ function createPerpendicularRay(
 /**
  * Split the merged polygon into lots based on the calculated rays.
  */
-function splitStripIntoLots(
-    strip: Strip,
-    logicalStreet: LogicalStreet,
-    rays: LineString[]
-): Lot[] {
-    const lots: Lot[] = [];
-    
+function splitStripIntoPolygons(strip: Strip, logicalStreet: LogicalStreet, rays: LineString[]): Polygon[] {
     if (rays.length === 0) {
-        // If no rays, return the whole polygon as a single lot
-        lots.push({
-            geometry: strip.polygon,
-            color: logicalStreet.color,
-            id: `${logicalStreet.id}-lot-0`
-        });
-        return lots;
+        return [strip.polygon];
     }
     
     // Start with the original strip geometry
@@ -264,49 +301,30 @@ function splitStripIntoLots(
         
         currentPolygons = newPolygons;
     }
+
+    return currentPolygons;
+}
+
+function postProcessLotPolygons(polygons: Polygon[], street: LogicalStreet): Polygon[] {
+    return polygons;
+}
+
+function generateLots(polygons: Polygon[], street: LogicalStreet): Lot[] {
+    const lots: Lot[] = [];
     
-    // Convert the final polygons to Lot objects
-    for (let i = 0; i < currentPolygons.length; i++) {
-        const polygon = currentPolygons[i];
+    for (let i = 0; i < polygons.length; i++) {
+        const polygon = polygons[i];
         
-        // Calculate a slight color variation for each lot
-        const baseColor = logicalStreet.color;
-        const colorVariation = (i * 20) % 100; // Small variation
-        const lotColor: Color = [
-            Math.min(255, baseColor[0] + colorVariation),
-            Math.min(255, baseColor[1] + colorVariation),
-            Math.min(255, baseColor[2] + colorVariation),
-            baseColor[3]
-        ];
+        // Calculate a random color for each lot
+        const lotColor: Color = randomColor();
         
+        // Create the lot object
         lots.push({
             geometry: polygon,
             color: lotColor,
-            id: `${logicalStreet.id}-lot-${i}`
+            id: `${street.id}-lot-${i}`
         });
     }
     
     return lots;
-}
-
-/**
- * Check if two edges are coincident (overlapping or very close)
- */
-function isEdgeSubsegment(
-    edge1Start: number[],
-    edge1End: number[],
-    edge2Start: number[],
-    edge2End: number[],
-    tolerance: number
-): boolean {
-    // Check if both endpoints of edge1 are close to edge2
-    const start1ToEdge2 = pointToLineDistance(edge1Start, lineString([edge2Start, edge2End]), { units: 'degrees' });
-    const end1ToEdge2 = pointToLineDistance(edge1End, lineString([edge2Start, edge2End]), { units: 'degrees' });
-    
-    // Check if both endpoints of edge2 are close to edge1
-    const start2ToEdge1 = pointToLineDistance(edge2Start, lineString([edge1Start, edge1End]), { units: 'degrees' });
-    const end2ToEdge1 = pointToLineDistance(edge2End, lineString([edge1Start, edge1End]), { units: 'degrees' });
-    
-    return (start1ToEdge2 < tolerance && end1ToEdge2 < tolerance) ||
-           (start2ToEdge1 < tolerance && end2ToEdge1 < tolerance);
 }
