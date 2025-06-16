@@ -1,11 +1,10 @@
 import { LineString, Polygon, Feature } from "geojson";
-import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap } from "@turf/turf";
+import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap, featureCollection, union, length, transformTranslate } from "@turf/turf";
 import { Color } from "deck.gl";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
 import { Strip } from "./Strips";
 import { debugStore } from "../debug/DebugStore";
-import { randomColor } from "../util/random";
 
 export type Lot = {
     geometry: Polygon;
@@ -13,16 +12,42 @@ export type Lot = {
     id: string;
 };
 
-const LOT_MIN_AREA = 500; // Minimum area for a valid lot in square meters
+// Track polygon adjacency during slicing
+type PolygonNode = {
+    id: string;
+    geometry: Polygon;
+    adjacentEdges: Map<string, number>; // Maps adjacent polygon ID to shared edge length
+    parentRayIndex?: number; // Which ray created this polygon (for tracking adjacency)
+    isValid: boolean; // Whether this polygon meets area and street frontage requirements
+};
+
+const LOT_MIN_AREA = 750; // Minimum area for a valid lot in square meters
 
 export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): Lot[] {
     const lots: Lot[] = [];
 
     for (const strip of strips) {
-        const rays = calculateSplittingRays(strip);
-        const polygons = splitStripIntoPolygons(strip, street, rays);
-        const postProcessedPolygons = postProcessLotPolygons(polygons, street);
-        lots.push(...generateLots(postProcessedPolygons, street));
+        const edgesFacingStreet = findStripEdgesFacingStreet(strip);
+        
+        if (!edgesFacingStreet) {
+            console.warn(`No edges facing street found`);
+            continue;
+        }
+        
+        const rays = calculateSplittingRays(strip, edgesFacingStreet);
+        const polygonNodes = splitStripIntoPolygonNodes(strip, rays, edgesFacingStreet);
+
+        for (const node of polygonNodes) {
+            const translated = transformTranslate(node.geometry, 300, 0, { units: 'meters' });
+            debugStore.addGeometry({
+                geometry: translated,
+                color: node.isValid ? [0, 255, 0, 128] : [255, 0, 0, 128],
+                label: `Polygon ${node.id} - Valid: ${node.isValid}`
+            });
+        }
+
+        const mergedNodes = mergeInvalidPolygons(polygonNodes, edgesFacingStreet);
+        lots.push(...generateLotsFromNodes(mergedNodes, street));
     }
 
     return lots;
@@ -34,12 +59,11 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
  * @param strip Strip
  * @returns A set of rays (LineStrings) that will be used to split the strip into lots.
  */
-function calculateSplittingRays(strip: Strip): LineString[] {
+function calculateSplittingRays(strip: Strip, edgesFacingStreet: LineString): LineString[] {
     const rays: LineString[] = [];
     const rayLength = lengthToDegrees(strip.block.maxLotDepth + 10, 'meters');
     const lotWidth = lengthToDegrees(25, 'meters');
 
-    const edgesFacingStreet = findStripEdgesFacingStreet(strip);
     if (edgesFacingStreet) {
         // Traverse the edges facing the street. Every lotWidth meters, create a ray.
         const streetEdgeCoords = edgesFacingStreet.coordinates;
@@ -238,91 +262,291 @@ function createPerpendicularRay(
 }
 
 /**
- * Split the merged polygon into lots based on the calculated rays.
+ * Split the merged polygon into polygon nodes with adjacency tracking.
  */
-function splitStripIntoPolygons(strip: Strip, logicalStreet: LogicalStreet, rays: LineString[]): Polygon[] {
+function splitStripIntoPolygonNodes(strip: Strip, rays: LineString[], edgesFacingStreet: LineString): PolygonNode[] {
+    const getNextId = (() => {
+        let idCounter = 0;
+        return () => `polygon-${idCounter++}`;
+    })();
+    
     if (rays.length === 0) {
-        return [strip.polygon];
+        const node: PolygonNode = {
+            id: getNextId(),
+            geometry: strip.polygon,
+            adjacentEdges: new Map(),
+            isValid: validatePolygon(strip.polygon, edgesFacingStreet)
+        };
+        return [node];
     }
     
     // Start with the original strip geometry
-    let currentPolygons: Polygon[] = [strip.polygon];
+    let currentNodes: PolygonNode[] = [{
+        id: getNextId(),
+        geometry: strip.polygon,
+        adjacentEdges: new Map(),
+        isValid: validatePolygon(strip.polygon, edgesFacingStreet)
+    }];
     
     // Apply each ray to split the polygons
     for (let rayIndex = 0; rayIndex < rays.length; rayIndex++) {
         const ray = rays[rayIndex];
-        const newPolygons: Polygon[] = [];
+        const newNodes: PolygonNode[] = [];
         
         // Split each current polygon with this ray
-        for (const polygon of currentPolygons) {
+        for (const node of currentNodes) {
             try {
                 // Use polygonSlice to split the polygon with the ray
-                const sliceResult = polygonSlice(feature(polygon), feature(ray));
+                const sliceResult = polygonSlice(feature(node.geometry), feature(ray));
                 
-                if (sliceResult && sliceResult.features && sliceResult.features.length > 0) {
-
-                    let producesSmallPolygons = false;
-                    for (const slicedFeature of sliceResult.features) {
+                if (sliceResult && sliceResult.features && sliceResult.features.length > 1) {
+                    // Create new nodes for each resulting polygon
+                    const resultingNodes: PolygonNode[] = [];
+                    
+                    for (let i = 0; i < sliceResult.features.length; i++) {
+                        const slicedFeature = sliceResult.features[i];
                         if (slicedFeature.geometry.type === 'Polygon') {
-                            if (area(slicedFeature) < LOT_MIN_AREA) {
-                                producesSmallPolygons = true;
-                                break;
-                            }
+                            const newNode: PolygonNode = {
+                                id: getNextId(),
+                                geometry: slicedFeature.geometry,
+                                adjacentEdges: new Map(),
+                                parentRayIndex: rayIndex,
+                                isValid: validatePolygon(slicedFeature.geometry, edgesFacingStreet)
+                            };
+                            resultingNodes.push(newNode);
                         }
                     }
                     
-                    if (producesSmallPolygons) {
-                        // Skip this ray and just keep the original polygon
-                        newPolygons.push(polygon);
-                    }
-                    else {
-                        // Add all resulting polygons
-                        for (const slicedFeature of sliceResult.features) {
-                            if (slicedFeature.geometry.type === 'Polygon') {
-                                newPolygons.push(slicedFeature.geometry);
-                            }
+                    // Calculate adjacency between the resulting polygons
+                    if (resultingNodes.length === 2) {
+                        const sharedEdgeLength = calculateSharedEdgeLength(resultingNodes[0].geometry, resultingNodes[1].geometry);
+                        if (sharedEdgeLength > 0) {
+                            resultingNodes[0].adjacentEdges.set(resultingNodes[1].id, sharedEdgeLength);
+                            resultingNodes[1].adjacentEdges.set(resultingNodes[0].id, sharedEdgeLength);
                         }
                     }
+                    
+                    newNodes.push(...resultingNodes);
                 }
                 else {
-                    // If slicing failed, keep the original polygon
-                    newPolygons.push(polygon);
+                    // If slicing failed or produced only one polygon, keep the original
+                    newNodes.push(node);
                 }
             }
             catch (error) {
-                // TODO: Debug the slicing errors
-                //console.warn(`Failed to slice polygon with ray ${rayIndex}:`, error);
-                //console.log(JSON.stringify(ray, null, 2) + ",\n" + JSON.stringify(polygon, null, 2));
-
                 // Keep the original polygon if slicing fails
-                newPolygons.push(polygon);
+                newNodes.push(node);
             }
         }
         
-        currentPolygons = newPolygons;
+        currentNodes = newNodes;
     }
 
-    return currentPolygons;
+    // After all rays are applied, calculate adjacency between all polygons
+    updateGlobalAdjacency(currentNodes);
+    
+    return currentNodes;
 }
 
-function postProcessLotPolygons(polygons: Polygon[], street: LogicalStreet): Polygon[] {
-    return polygons;
+/**
+ * Validate if a polygon meets the requirements (minimum area and street frontage)
+ */
+function validatePolygon(polygon: Polygon, edgesFacingStreet: LineString): boolean {
+    // Check minimum area
+    const areaValue = area(polygon);
+    if (areaValue < LOT_MIN_AREA) {
+        return false;
+    }
+    
+    // Check if lot has street frontage
+    const intersection = lineOverlap(polygon, edgesFacingStreet, { tolerance: 1 / 1000 });
+    return intersection.features.length > 0;
 }
 
-function generateLots(polygons: Polygon[], street: LogicalStreet): Lot[] {
+/**
+ * Calculate the length of shared edge between two polygons
+ */
+function calculateSharedEdgeLength(poly1: Polygon, poly2: Polygon): number {
+    try {
+        const overlap = lineOverlap(poly1, poly2, { tolerance: 1 / 1000 });
+        if (overlap.features.length === 0) {
+            return 0;
+        }
+        
+        // Calculate total length of all overlapping segments
+        let totalLength = 0;
+        for (const feature of overlap.features) {
+            if (feature.geometry.type === 'LineString') {
+                totalLength += length(feature, { units: 'meters' });
+            }
+        }
+        return totalLength;
+    }
+    catch (error) {
+        return 0;
+    }
+}
+
+/**
+ * Update adjacency information between all polygons in the collection
+ */
+function updateGlobalAdjacency(nodes: PolygonNode[]): void {
+    for (let i = 0; i < nodes.length; i++) {
+        for (let j = i + 1; j < nodes.length; j++) {
+            const node1 = nodes[i];
+            const node2 = nodes[j];
+            
+            // Skip if they were already marked as adjacent during ray splitting
+            if (node1.adjacentEdges.has(node2.id)) {
+                continue;
+            }
+            
+            const sharedLength = calculateSharedEdgeLength(node1.geometry, node2.geometry);
+            if (sharedLength > 0) {
+                node1.adjacentEdges.set(node2.id, sharedLength);
+                node2.adjacentEdges.set(node1.id, sharedLength);
+            }
+        }
+    }
+}
+
+/**
+ * Merge invalid polygons with their best adjacent neighbors recursively
+ */
+function mergeInvalidPolygons(nodes: PolygonNode[], edgesFacingStreet: LineString): PolygonNode[] {
+    return mergeInvalidPolygonsRecursive(nodes, edgesFacingStreet, 0);
+}
+
+/**
+ * Recursive helper function for merging invalid polygons
+ */
+function mergeInvalidPolygonsRecursive(nodes: PolygonNode[], edgesFacingStreet: LineString, iteration: number): PolygonNode[] {
+    const MAX_ITERATIONS = 10; // Prevent infinite loops
+    
+    if (iteration >= MAX_ITERATIONS) {
+        console.warn(`Reached maximum merge iterations (${MAX_ITERATIONS}), stopping recursion`);
+        return nodes;
+    }
+    
+    console.log(`Merge iteration ${iteration + 1}, processing ${nodes.length} polygons`);
+    
+    const result: PolygonNode[] = [];
+    const processed = new Set<string>();
+    let hasMerges = false;
+    
+    // Process invalid polygons first to avoid duplicate merging
+    for (const invalidNode of nodes) {
+        if (invalidNode.isValid || processed.has(invalidNode.id)) {
+            continue;
+        }
+        
+        // Find the best adjacent polygon to merge with
+        let bestAdjacentNode: PolygonNode | null = null;
+        let maxSharedLength = 0;
+        
+        for (const [adjacentId, sharedLength] of invalidNode.adjacentEdges) {
+            const adjacentNode = nodes.find(n => n.id === adjacentId);
+            if (adjacentNode && !processed.has(adjacentId) && sharedLength > maxSharedLength) {
+                bestAdjacentNode = adjacentNode;
+                maxSharedLength = sharedLength;
+            }
+        }
+        
+        if (bestAdjacentNode) {
+            try {
+                const mergedGeometry = union(featureCollection([feature(invalidNode.geometry), feature(bestAdjacentNode.geometry)]));
+                
+                if (mergedGeometry && mergedGeometry.geometry.type === 'Polygon') {
+                    console.log(`Merged polygons: ${invalidNode.id} with ${bestAdjacentNode.id}`);
+
+                    // Create a new merged node and validate it
+                    const isValid = validatePolygon(mergedGeometry.geometry as Polygon, edgesFacingStreet);
+                    const mergedNode: PolygonNode = {
+                        id: `${bestAdjacentNode.id}-merged-${invalidNode.id}`,
+                        geometry: mergedGeometry.geometry as Polygon,
+                        adjacentEdges: new Map(),
+                        isValid
+                    };
+                    
+                    result.push(mergedNode);
+                    hasMerges = true;
+                    
+                    // Mark both polygons as processed
+                    processed.add(invalidNode.id);
+                    processed.add(bestAdjacentNode.id);
+                }
+                else {
+                    console.warn(`Failed to merge polygons: ${invalidNode.id} with ${bestAdjacentNode.id}`);
+
+                    // If merge failed, keep the original adjacent node if it's valid
+                    if (bestAdjacentNode.isValid) {
+                        result.push(bestAdjacentNode);
+                        processed.add(bestAdjacentNode.id);
+                    }
+                    processed.add(invalidNode.id);
+                }
+            }
+            catch (error) {
+                console.warn(`Failed to merge polygons: ${invalidNode.id} with ${bestAdjacentNode.id}`, error);
+
+                // If merge failed, keep the original adjacent node if it's valid
+                if (bestAdjacentNode.isValid) {
+                    result.push(bestAdjacentNode);
+                    processed.add(bestAdjacentNode.id);
+                }
+                processed.add(invalidNode.id);
+            }
+        }
+        else {
+            // No adjacent polygon found, mark as processed
+            processed.add(invalidNode.id);
+        }
+    }
+    
+    // Add remaining valid polygons that weren't involved in any merge
+    for (const node of nodes) {
+        if (node.isValid && !processed.has(node.id)) {
+            result.push(node);
+            processed.add(node.id);
+        }
+    }
+    
+    // If we made merges, we need to update adjacency and potentially merge again
+    if (hasMerges) {
+        // Update adjacency information for the new set of polygons
+        updateGlobalAdjacency(result);
+        
+        // Check if there are still invalid polygons that need merging
+        const hasInvalidPolygons = result.some(node => !node.isValid);
+        
+        if (hasInvalidPolygons) {
+            console.log(`Found ${result.filter(n => !n.isValid).length} invalid polygons, continuing recursion`);
+            return mergeInvalidPolygonsRecursive(result, edgesFacingStreet, iteration + 1);
+        }
+    }
+    
+    console.log(`Merge complete after ${iteration + 1} iterations. Final polygons:`, result.map(n => n.id));
+    return result;
+}
+
+/**
+ * Generate lots from the processed polygon nodes
+ */
+function generateLotsFromNodes(nodes: PolygonNode[], street: LogicalStreet): Lot[] {
     const lots: Lot[] = [];
     
-    for (let i = 0; i < polygons.length; i++) {
-        const polygon = polygons[i];
+    for (let i = 0; i < nodes.length; i++) {
+        const node = nodes[i];
         
         // Calculate a random color for each lot
-        const lotColor: Color = randomColor();
+        // const lotColor: Color = randomColor();
+        const lotColor: Color = [100, 100, 100, 220];
         
         // Create the lot object
         lots.push({
-            geometry: polygon,
+            geometry: node.geometry,
             color: lotColor,
-            id: `${street.id}-lot-${i}`
+            id: `${street.id}-lot-${node.id}`
         });
     }
     
