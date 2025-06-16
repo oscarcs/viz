@@ -5,7 +5,6 @@ import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
 import { customBuffer } from "../util/CustomBuffer";
 import { Strip } from "./Strips";
-import { debugStore } from "../debug/DebugStore";
 
 export type Lot = {
     geometry: Polygon;
@@ -37,16 +36,6 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
         
         const rays = calculateSplittingRays(strip, edgesFacingStreet);
         const polygonNodes = splitStripIntoPolygonNodes(strip, rays, edgesFacingStreet);
-
-        for (const node of polygonNodes) {
-            const translated = transformTranslate(node.geometry, 500, 0, { units: 'meters' });
-            debugStore.addGeometry({
-                geometry: translated,
-                color: node.isValid ? [0, 255, 0, 128] : [255, 0, 0, 128],
-                label: `Polygon ${node.id} - Valid: ${node.isValid}`
-            });
-        }
-
         const mergedNodes = mergeInvalidPolygons(polygonNodes, edgesFacingStreet);
         lots.push(...generateLotsFromNodes(mergedNodes, street));
     }
@@ -517,69 +506,30 @@ function mergePolygonNodes(
     edgesFacingStreet: LineString
 ): { success: boolean; mergedNode?: PolygonNode; error?: string } {
     try {
-        const mergedGeometry = union(featureCollection([feature(invalidNode.geometry), feature(adjacentNode.geometry)]));
-        
-        if (mergedGeometry && mergedGeometry.geometry.type === 'Polygon') {
-            const isValid = validatePolygon(mergedGeometry.geometry as Polygon, edgesFacingStreet);
+        const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
+            
+        if (bufferMerged) {
+            const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
             const mergedNode: PolygonNode = {
-                id: `${adjacentNode.id}-${invalidNode.id}`,
-                geometry: mergedGeometry.geometry as Polygon,
+                id: `${adjacentNode.id}x${invalidNode.id}`,
+                geometry: bufferMerged,
                 adjacentEdges: new Map(),
                 isValid
-            };
-            
+            };                
             return { success: true, mergedNode };
         }
-        // Union failed to produce a single polygon, try buffer-union-erode fallback
         else {
-            const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
-            
-            if (bufferMerged) {
-                const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
-                const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}x${invalidNode.id}`,
-                    geometry: bufferMerged,
-                    adjacentEdges: new Map(),
-                    isValid
-                };                
-                return { success: true, mergedNode };
-            }
-            else {
-                return { 
-                    success: false, 
-                    error: `Both union and buffer-union-erode operations failed to produce a valid polygon`
-                };
-            }
+            return { 
+                success: false, 
+                error: `Merge operations failed to produce a valid polygon`
+            };
         }
     }
     catch (error) {
-        try {
-            const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
-            
-            if (bufferMerged) {                
-                const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
-                const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}-${invalidNode.id}`,
-                    geometry: bufferMerged,
-                    adjacentEdges: new Map(),
-                    isValid
-                };
-                
-                return { success: true, mergedNode };
-            }
-            else {
-                return { 
-                    success: false, 
-                    error: `Union failed with error and buffer-union-erode fallback also failed: ${error instanceof Error ? error.message : 'Unknown error'}`
-                };
-            }
-        }
-        catch (fallbackError) {
-            return { 
-                success: false, 
-                error: `All merge operations failed: ${error instanceof Error ? error.message : 'Unknown error'}, fallback error: ${fallbackError instanceof Error ? fallbackError.message : 'Unknown fallback error'}`
-            };
-        }
+        return { 
+            success: false, 
+            error: `Merge operations failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        };
     }
 }
 
@@ -645,10 +595,7 @@ function generateLotsFromNodes(nodes: PolygonNode[], street: LogicalStreet): Lot
     for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         
-
-        // Calculate a random color for each lot
-        // const lotColor: Color = randomColor();
-        const lotColor: Color = [100, 100, 100, 220];
+        const lotColor = street.color || [100, 100, 100, 255]; // Default color if not set
         
         // Create the lot object
         lots.push({
