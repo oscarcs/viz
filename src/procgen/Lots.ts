@@ -268,7 +268,7 @@ function createPerpendicularRay(
 function splitStripIntoPolygonNodes(strip: Strip, rays: LineString[], edgesFacingStreet: LineString): PolygonNode[] {
     const getNextId = (() => {
         let idCounter = 0;
-        return () => `polygon-${idCounter++}`;
+        return () => `${idCounter++}`;
     })();
     
     if (rays.length === 0) {
@@ -403,7 +403,7 @@ function updateGlobalAdjacency(nodes: PolygonNode[]): void {
             }
             
             const sharedLength = calculateSharedEdgeLength(node1.geometry, node2.geometry);
-            if (sharedLength > 0) {
+            if (sharedLength > 0.01) {
                 node1.adjacentEdges.set(node2.id, sharedLength);
                 node2.adjacentEdges.set(node1.id, sharedLength);
             }
@@ -415,8 +415,6 @@ function updateGlobalAdjacency(nodes: PolygonNode[]): void {
  * Merge invalid polygons with their best adjacent neighbors recursively
  */
 function mergeInvalidPolygons(nodes: PolygonNode[], edgesFacingStreet: LineString): PolygonNode[] {
-    console.log(nodes.map(n => n.id));
-    
     return mergeInvalidPolygonsRecursive(nodes, edgesFacingStreet, 0);
 }
 
@@ -430,9 +428,7 @@ function mergeInvalidPolygonsRecursive(nodes: PolygonNode[], edgesFacingStreet: 
         console.warn(`Reached maximum merge iterations (${MAX_ITERATIONS}), stopping recursion`);
         return nodes;
     }
-    
-    console.log(`Merge iteration ${iteration + 1}, processing ${nodes.length} polygons`);
-    
+        
     const result: PolygonNode[] = [];
     const processed = new Set<string>();
     let hasMerges = false;
@@ -478,44 +474,9 @@ function mergeInvalidPolygonsRecursive(nodes: PolygonNode[], edgesFacingStreet: 
             }
         }
         else {
-            console.warn(`No adjacent polygon found for ${invalidNode.id}`);
-            console.log(`Available adjacencies for ${invalidNode.id}:`, Array.from(invalidNode.adjacentEdges.keys()));
-            console.log(`Already processed polygons:`, Array.from(processed));
-            console.log(`Remaining unprocessed adjacent polygons:`, 
-                Array.from(invalidNode.adjacentEdges.keys()).filter(id => !processed.has(id)));
-
-            // Try to find the nearest polygon as a fallback
-            const nearestNode = findNearestPolygon(invalidNode, nodes);
-            
-            if (nearestNode) {
-                console.log(`Found nearest polygon ${nearestNode.id} for ${invalidNode.id}, attempting merge`);
-                
-                const mergeResult = mergePolygonNodes(invalidNode, nearestNode, edgesFacingStreet);
-                
-                if (mergeResult.success && mergeResult.mergedNode) {
-                    result.push(mergeResult.mergedNode);
-                    hasMerges = true;
-                    
-                    // Mark both polygons as processed
-                    processed.add(invalidNode.id);
-                    processed.add(nearestNode.id);
-                }
-                else {
-                    console.warn(`Failed to merge with nearest polygon: ${invalidNode.id} with ${nearestNode.id}`, mergeResult.error);
-                    
-                    // If merge failed, keep the nearest node if it's valid
-                    if (nearestNode.isValid) {
-                        result.push(nearestNode);
-                        processed.add(nearestNode.id);
-                    }
-                    processed.add(invalidNode.id);
-                }
-            }
-            else {
-                console.warn(`No polygons available for ${invalidNode.id}`);
-                // No adjacent polygon found and no nearest polygon available, mark as processed
-                processed.add(invalidNode.id);
-            }
+            // No adjacent polygon found; process in a subsequent iteration
+            result.push(invalidNode);
+            processed.add(invalidNode.id);
         }
     }
     
@@ -531,67 +492,16 @@ function mergeInvalidPolygonsRecursive(nodes: PolygonNode[], edgesFacingStreet: 
     if (hasMerges) {
         // Update adjacency information for the new set of polygons
         updateGlobalAdjacency(result);
-        
+
         // Check if there are still invalid polygons that need merging
         const hasInvalidPolygons = result.some(node => !node.isValid);
         
         if (hasInvalidPolygons) {
-            console.log(`Found ${result.filter(n => !n.isValid).length} invalid polygons, continuing recursion`);
             return mergeInvalidPolygonsRecursive(result, edgesFacingStreet, iteration + 1);
         }
     }
     
-    console.log(`Merge complete after ${iteration + 1} iterations. Final polygons:`, result.map(n => n.id));
     return result;
-}
-
-/**
- * Find the nearest polygon to merge with when no adjacent polygon is available
- */
-function findNearestPolygon(
-    targetNode: PolygonNode, 
-    allNodes: PolygonNode[]
-): PolygonNode | null {
-    let nearestNode: PolygonNode | null = null;
-    let minDistance = Infinity;
-    
-    for (const node of allNodes) {
-        if (node.id === targetNode.id) {
-            continue;
-        }
-        
-        // Calculate distance between polygon centroids
-        const targetCoords = targetNode.geometry.coordinates[0];
-        const nodeCoords = node.geometry.coordinates[0];
-        
-        // Simple centroid calculation
-        const targetCentroid = calculateCentroid(targetCoords);
-        const nodeCentroid = calculateCentroid(nodeCoords);
-        
-        const distance = Math.sqrt(
-            Math.pow(targetCentroid[0] - nodeCentroid[0], 2) + 
-            Math.pow(targetCentroid[1] - nodeCentroid[1], 2)
-        );
-        
-        if (distance < minDistance) {
-            minDistance = distance;
-            nearestNode = node;
-        }
-    }
-    
-    return nearestNode;
-}
-
-/**
- * Calculate the centroid of a polygon's coordinates
- */
-function calculateCentroid(coordinates: number[][]): number[] {
-    let x = 0, y = 0;
-    for (const coord of coordinates) {
-        x += coord[0];
-        y += coord[1];
-    }
-    return [x / coordinates.length, y / coordinates.length];
 }
 
 /**
@@ -610,12 +520,9 @@ function mergePolygonNodes(
         const mergedGeometry = union(featureCollection([feature(invalidNode.geometry), feature(adjacentNode.geometry)]));
         
         if (mergedGeometry && mergedGeometry.geometry.type === 'Polygon') {
-            console.log(`Merged polygons: ${invalidNode.id} with ${adjacentNode.id}`);
-
-            // Create a new merged node and validate it
             const isValid = validatePolygon(mergedGeometry.geometry as Polygon, edgesFacingStreet);
             const mergedNode: PolygonNode = {
-                id: `${adjacentNode.id}-merged-${invalidNode.id}`,
+                id: `${adjacentNode.id}-${invalidNode.id}`,
                 geometry: mergedGeometry.geometry as Polygon,
                 adjacentEdges: new Map(),
                 isValid
@@ -623,23 +530,18 @@ function mergePolygonNodes(
             
             return { success: true, mergedNode };
         }
+        // Union failed to produce a single polygon, try buffer-union-erode fallback
         else {
-            // Union failed to produce a single polygon, try buffer-union-erode fallback
-            console.log(`Union failed for ${invalidNode.id} and ${adjacentNode.id}, trying buffer-union-erode fallback`);
-            
             const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
             
             if (bufferMerged) {
-                console.log(`Buffer-union-erode fallback successful for ${invalidNode.id} and ${adjacentNode.id}`);
-                
                 const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
                 const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}-buffered-${invalidNode.id}`,
+                    id: `${adjacentNode.id}x${invalidNode.id}`,
                     geometry: bufferMerged,
                     adjacentEdges: new Map(),
                     isValid
-                };
-                
+                };                
                 return { success: true, mergedNode };
             }
             else {
@@ -651,17 +553,13 @@ function mergePolygonNodes(
         }
     }
     catch (error) {
-        console.log(`Union threw error for ${invalidNode.id} and ${adjacentNode.id}, trying buffer-union-erode fallback`);
-        
         try {
             const bufferMerged = bufferUnionErode([invalidNode.geometry, adjacentNode.geometry]);
             
-            if (bufferMerged) {
-                console.log(`Buffer-union-erode fallback successful after union error for ${invalidNode.id} and ${adjacentNode.id}`);
-                
+            if (bufferMerged) {                
                 const isValid = validatePolygon(bufferMerged, edgesFacingStreet);
                 const mergedNode: PolygonNode = {
-                    id: `${adjacentNode.id}-buffered-${invalidNode.id}`,
+                    id: `${adjacentNode.id}-${invalidNode.id}`,
                     geometry: bufferMerged,
                     adjacentEdges: new Map(),
                     isValid
@@ -687,7 +585,6 @@ function mergePolygonNodes(
 
 /**
  * Attempts to merge polygons using a buffer-union-erode strategy.
- * This is more robust than convex hull as it preserves the original shape better.
  * @param polygons Array of polygon geometries to merge
  * @param tolerance Buffer distance in meters (default: 1m)
  * @returns Merged polygon or null if operation fails
@@ -722,11 +619,11 @@ function bufferUnionErode(polygons: Polygon[], tolerance: number = 1): Polygon |
                 return null;
             }
         }
-        
+
         // Step 3: Erode back to original size
         if (result.geometry.type === 'Polygon') {
             const erodedResult = customBuffer(result.geometry, -tolerance, { units: 'meters' });
-            if (erodedResult && erodedResult.type === 'Feature' && erodedResult.geometry.type === 'Polygon') {
+            if (erodedResult && erodedResult.type === 'Feature' && erodedResult.geometry.type === 'Polygon') {                
                 return erodedResult.geometry;
             }
         }
@@ -748,6 +645,7 @@ function generateLotsFromNodes(nodes: PolygonNode[], street: LogicalStreet): Lot
     for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         
+
         // Calculate a random color for each lot
         // const lotColor: Color = randomColor();
         const lotColor: Color = [100, 100, 100, 220];
