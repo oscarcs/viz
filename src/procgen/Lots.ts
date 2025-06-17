@@ -31,23 +31,24 @@ type PolygonNode = {
     isValid: boolean; // Whether this polygon meets area and street frontage requirements
 };
 
-const LOT_MIN_AREA = 750; // Minimum area for a valid lot in square meters
+// Constants for lot area validation in square meters
+const LOT_MIN_AREA = 750;
+const LOT_MAX_AREA = 4000;
 
 export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): Lot[] {
     const lots: Lot[] = [];
 
     for (const strip of strips) {
-        const edgesFacingStreet = findStripEdgesFacingStreet(strip, street);
+        const edgesFacingStreet = findStripEdgesFacingStreet(strip);
         
         if (!edgesFacingStreet) {
             console.warn(`No edges facing street found`);
             continue;
         }
-        
-        const rays = calculateSplittingRays(strip, edgesFacingStreet);
+        const rays = calculateSplittingRays(strip, street.getLineString());
         const polygonNodes = splitStripIntoPolygonNodes(strip, rays, edgesFacingStreet);
-        const mergedNodes = mergeInvalidPolygons(polygonNodes, edgesFacingStreet);
-        lots.push(...generateLotsFromNodes(mergedNodes, street));
+        const postProcessedNodes = postProcessNodes(polygonNodes, edgesFacingStreet);
+        lots.push(...generateLotsFromNodes(postProcessedNodes, street));
     }
 
     return lots;
@@ -59,14 +60,16 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
  * @param strip Strip
  * @returns A set of rays (LineStrings) that will be used to split the strip into lots.
  */
-function calculateSplittingRays(strip: Strip, edgesFacingStreet: LineString): LineString[] {
+function calculateSplittingRays(strip: Strip, streetLine: LineString): LineString[] {
     const rays: LineString[] = [];
     const rayLength = lengthToDegrees(strip.block.maxLotDepth + 10, 'meters');
     const lotWidth = lengthToDegrees(25, 'meters');
 
-    if (edgesFacingStreet) {
+    // TODO: Optimize this so we don't create way more rays than needed.
+
+    if (streetLine) {
         // Traverse the edges facing the street. Every lotWidth meters, create a ray.
-        const streetEdgeCoords = edgesFacingStreet.coordinates;
+        const streetEdgeCoords = streetLine.coordinates;
         
         // Calculate the total length of the street-facing edge(s)
         let totalLength = 0;
@@ -79,7 +82,7 @@ function calculateSplittingRays(strip: Strip, edgesFacingStreet: LineString): Li
         // Generate rays at regular intervals along the street edge
         let currentDistance = 0;
         let currentSegmentIndex = 0;
-        let segmentStartDistance = 0;
+        let segmentStartDistance = Math.random() / 5000; // add small perturbation to improve lot variety
         
         while (currentDistance < totalLength - lotWidth && currentSegmentIndex < streetEdgeCoords.length - 1) {
             // Find which segment we're currently on
@@ -125,7 +128,7 @@ function calculateSplittingRays(strip: Strip, edgesFacingStreet: LineString): Li
  * @param strip Strip
  * @returns A line string representing the edges of the strip that face the street, or null if none found.
  */
-function findStripEdgesFacingStreet(strip: Strip, street: LogicalStreet): LineString | null {
+function findStripEdgesFacingStreet(strip: Strip): LineString | null {
     const blockBoundary = strip.block.polygon.geometry;
 
     const overlappingBlock = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
@@ -133,22 +136,6 @@ function findStripEdgesFacingStreet(strip: Strip, street: LogicalStreet): LineSt
         .map((feature: Feature<LineString>) => feature.geometry);
 
     const combinedOverlappingBlock = stitchLineStrings(overlappingBlock);
-
-    if (combinedOverlappingBlock) {
-        const streetLine = street.getLineString();
-        
-        // Try to find only the part that faces the given street.
-        // This is flaky, so we just return first line if it fails.
-        const overlappingBlockAndStreet = lineOverlap(streetLine, combinedOverlappingBlock, { tolerance: 1 / 100 })
-            .features
-            .map((feature: Feature<LineString>) => feature.geometry);
-
-        const combinedOverlappingBlockAndStreet = stitchLineStrings(overlappingBlockAndStreet);
-
-        if (combinedOverlappingBlockAndStreet) {
-            return combinedOverlappingBlockAndStreet;
-        }
-    }
     
     return combinedOverlappingBlock;
 }
@@ -356,11 +343,7 @@ function splitStripIntoPolygonNodes(strip: Strip, rays: LineString[], edgesFacin
         }
         
         currentNodes = newNodes;
-    }
-
-    // After all rays are applied, calculate adjacency between all polygons
-    updateGlobalAdjacency(currentNodes);
-    
+    }    
     return currentNodes;
 }
 
@@ -430,6 +413,15 @@ function updateGlobalAdjacency(nodes: PolygonNode[]): void {
             }
         }
     }
+}
+
+function postProcessNodes(nodes: PolygonNode[], edgesFacingStreet: LineString): PolygonNode[] {
+    updateGlobalAdjacency(nodes);
+
+    const mergedNodes = mergeInvalidPolygons(nodes, edgesFacingStreet);
+    const subdividedNodes = subdivideInvalidPolygons(mergedNodes, edgesFacingStreet);
+
+    return subdividedNodes;
 }
 
 /**
@@ -616,6 +608,12 @@ function bufferUnionErode(polygons: Polygon[], tolerance: number = 1): Polygon |
         console.warn('Buffer-union-erode failed:', error);
         return null;
     }
+}
+
+function subdivideInvalidPolygons(nodes: PolygonNode[], edgesFacingStreet: LineString): PolygonNode[] {
+    //TODO: Implement subdivision logic for invalid polygons
+
+    return nodes;
 }
 
 /**
