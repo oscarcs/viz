@@ -60,10 +60,12 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
     
         const strips = new Map<string, Strip>();
         for (const [streetId, polygon] of betaStrips) {
-            strips.set(streetId, {
-                polygon: polygon,
-                block: block
-            });
+            if (area(polygon) > 400) {
+                strips.set(streetId, {
+                    polygon: polygon,
+                    block: block
+                });
+            }
         }
     
         return strips;

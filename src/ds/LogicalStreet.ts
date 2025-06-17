@@ -104,7 +104,6 @@ export class LogicalStreet {
      */
     getLineString(): LineString {
         if (this.lineString) {
-            console.debug("Returning cached LineString for LogicalStreet", this.id);
             return this.lineString;
         }
 

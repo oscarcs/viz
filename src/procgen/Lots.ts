@@ -1,5 +1,15 @@
 import { LineString, Polygon, Feature } from "geojson";
-import { lengthToDegrees, feature, cleanCoords, lineString, area, lineOverlap, featureCollection, union, length, transformTranslate } from "@turf/turf";
+import {
+    lengthToDegrees,
+    feature,
+    cleanCoords,
+    lineString,
+    area,
+    lineOverlap,
+    featureCollection,
+    union,
+    length
+} from "@turf/turf";
 import { Color } from "deck.gl";
 import { LogicalStreet } from "../ds/LogicalStreet";
 import polygonSlice from "../util/polygonSlice";
@@ -27,7 +37,7 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
     const lots: Lot[] = [];
 
     for (const strip of strips) {
-        const edgesFacingStreet = findStripEdgesFacingStreet(strip);
+        const edgesFacingStreet = findStripEdgesFacingStreet(strip, street);
         
         if (!edgesFacingStreet) {
             console.warn(`No edges facing street found`);
@@ -115,16 +125,32 @@ function calculateSplittingRays(strip: Strip, edgesFacingStreet: LineString): Li
  * @param strip Strip
  * @returns A line string representing the edges of the strip that face the street, or null if none found.
  */
-function findStripEdgesFacingStreet(strip: Strip): LineString | null {
+function findStripEdgesFacingStreet(strip: Strip, street: LogicalStreet): LineString | null {
     const blockBoundary = strip.block.polygon.geometry;
 
-    const overlapping = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
+    const overlappingBlock = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
         .features
         .map((feature: Feature<LineString>) => feature.geometry);
 
-    const combined = stitchLineStrings(overlapping);
+    const combinedOverlappingBlock = stitchLineStrings(overlappingBlock);
 
-    return combined;
+    if (combinedOverlappingBlock) {
+        const streetLine = street.getLineString();
+        
+        // Try to find only the part that faces the given street.
+        // This is flaky, so we just return first line if it fails.
+        const overlappingBlockAndStreet = lineOverlap(streetLine, combinedOverlappingBlock, { tolerance: 1 / 100 })
+            .features
+            .map((feature: Feature<LineString>) => feature.geometry);
+
+        const combinedOverlappingBlockAndStreet = stitchLineStrings(overlappingBlockAndStreet);
+
+        if (combinedOverlappingBlockAndStreet) {
+            return combinedOverlappingBlockAndStreet;
+        }
+    }
+    
+    return combinedOverlappingBlock;
 }
 
 /**
@@ -349,8 +375,14 @@ function validatePolygon(polygon: Polygon, edgesFacingStreet: LineString): boole
     }
     
     // Check if lot has street frontage
-    const intersection = lineOverlap(polygon, edgesFacingStreet, { tolerance: 1 / 1000 });
-    return intersection.features.length > 0;
+    try {
+        const intersection = lineOverlap(polygon, edgesFacingStreet, { tolerance: 1 / 1000 });
+        return intersection.features.length > 0;
+    }
+    catch (error) {
+        console.warn(`Error checking street frontage for polygon: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return false;
+    }
 }
 
 /**
@@ -595,9 +627,8 @@ function generateLotsFromNodes(nodes: PolygonNode[], street: LogicalStreet): Lot
     for (let i = 0; i < nodes.length; i++) {
         const node = nodes[i];
         
-        const lotColor = street.color || [100, 100, 100, 255]; // Default color if not set
+        const lotColor = street.color || [100, 100, 100, 255];
         
-        // Create the lot object
         lots.push({
             geometry: node.geometry,
             color: lotColor,
