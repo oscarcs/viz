@@ -11,8 +11,44 @@ import {
     Polygon,
 } from "geojson";
 import { Block } from "../procgen/Strips";
-import { randomFromArray } from "../util/random";
 import { customBuffer } from "../util/CustomBuffer";
+
+type GraphChangeType = 'edge_added'
+    | 'edge_removed'
+    | 'node_added'
+    | 'node_removed'
+    | 'logical_street_edge_added'
+    | 'logical_street_edge_removed'
+    | 'logical_street_created'
+    | 'logical_street_removed';
+
+/**
+ * Represents a change made to the street graph
+ */
+interface GraphChange {
+    type: GraphChangeType;
+    edge?: Edge;
+    node?: Node;
+    logicalStreet?: LogicalStreet;
+    timestamp: number;
+    // Store coordinates for removed elements since the objects may be deleted
+    coordinates?: {
+        from?: number[];
+        to?: number[];
+        node?: number[];
+    };
+}
+
+/**
+ * Represents a region of the graph that has been affected by changes
+ */
+interface AffectedRegion {
+    nodes: Set<Node>;
+    edges: Set<Edge>;
+    // Store coordinates of removed elements
+    removedNodeCoords: Set<string>;
+    removedEdgeCoords: Set<string>;
+}
 
 /**
  * Validates the geoJson.
@@ -58,6 +94,8 @@ class StreetGraph {
     private edges: Edge[];
     private logicalStreets: Map<string, LogicalStreet>;
     private streetIdCounter: number;
+    private changes: GraphChange[];
+    private lastCommitTimestamp: number;
 
     /**
      * Creates a graph from a GeoJSON.
@@ -427,27 +465,41 @@ class StreetGraph {
         const fromContinuation = this.findLogicalStreetContinuation(edge, edge.from, true);
         const toContinuation = this.findLogicalStreetContinuation(edge, edge.to, false);
 
+        let assignedStreet: LogicalStreet | null = null;
+
+        // Edge connects two parts of the same logical street - add it
         if (fromContinuation && toContinuation && fromContinuation.street === toContinuation.street) {
-            // Edge connects two parts of the same logical street - add it
-            fromContinuation.street.addEdge(edge);
+            assignedStreet = fromContinuation.street;
         }
+        // Continue from the 'from' end
         else if (fromContinuation && !toContinuation) {
-            // Continue from the 'from' end
-            fromContinuation.street.addEdge(edge);
+            assignedStreet = fromContinuation.street;
         }
+        // Continue from the 'to' end
         else if (!fromContinuation && toContinuation) {
-            // Continue from the 'to' end
-            toContinuation.street.addEdge(edge);
+            assignedStreet = toContinuation.street;
         }
+        // Edge connects two different logical streets - merge them
         else if (fromContinuation && toContinuation && fromContinuation.street !== toContinuation.street) {
-            // Edge connects two different logical streets - merge them
             this.mergeLogicalStreets(fromContinuation.street, toContinuation.street);
             fromContinuation.street.addEdge(edge);
+            assignedStreet = fromContinuation.street;
         }
+        // No continuation found - create a new logical street
         else {
-            // No continuation found - create a new logical street
             const newStreet = this.createLogicalStreet();
-            newStreet.addEdge(edge);
+            assignedStreet = newStreet;
+        }
+
+        // Record logical street modification
+        if (assignedStreet) {
+            assignedStreet.addEdge(edge);
+
+            this.recordChange({
+                type: 'logical_street_edge_added',
+                logicalStreet: assignedStreet,
+                edge: edge
+            });
         }
     }
 
@@ -648,6 +700,12 @@ class StreetGraph {
         // Move all edges from street2 to street1
         for (const edge of street2.edges) {
             street1.addEdge(edge);
+
+            this.recordChange({
+                type: 'logical_street_edge_added',
+                logicalStreet: street1,
+                edge: edge,
+            });
         }
         
         // Remove street2 from the map
@@ -733,6 +791,15 @@ class StreetGraph {
         // No nearby node found, create a new one
         const id = Node.buildId(coordinates);
         const node = this.nodes[id] = new Node(coordinates);
+        
+        this.recordChange({
+            type: 'node_added',
+            node: node,
+            coordinates: {
+                node: coordinates
+            }
+        });
+        
         return node;
     }
 
@@ -752,6 +819,16 @@ class StreetGraph {
 
         this.edges.push(edge);
         this.edges.push(symetricEdge);
+        
+        this.recordChange({
+            type: 'edge_added',
+            edge: edge,
+            coordinates: {
+                from: from.coordinates,
+                to: to.coordinates
+            }
+        });
+        
         return edge;
     }
 
@@ -764,6 +841,40 @@ class StreetGraph {
         // Logical streets management
         this.logicalStreets = new Map();
         this.streetIdCounter = 0;
+        
+        this.changes = [];
+        this.lastCommitTimestamp = 0;
+    }
+
+    /**
+     * Record a change to the graph
+     */
+    private recordChange(change: Omit<GraphChange, 'timestamp'>): void {
+        this.changes.push({
+            ...change,
+            timestamp: Date.now()
+        });
+    }
+
+    /**
+     * Get all changes since the last commit
+     */
+    getChangesSinceLastCommit(): GraphChange[] {
+        return this.changes.filter(change => change.timestamp > this.lastCommitTimestamp);
+    }
+
+    /**
+     * Mark that polygonization has been completed
+     */
+    endCommit(): void {
+        this.lastCommitTimestamp = Date.now();
+    }
+
+    /**
+     * Clear all recorded changes
+     */
+    clearChanges(): void {
+        this.changes = [];
     }
 
     /**
@@ -986,6 +1097,14 @@ class StreetGraph {
      * @param {Node} node - Node to be removed
      */
     removeNode(node: Node) {
+        this.recordChange({
+            type: 'node_removed',
+            node: node,
+            coordinates: {
+                node: node.coordinates
+            }
+        });
+        
         node.getOuterEdges().forEach((edge) => this.removeEdge(edge));
         node.innerEdges.forEach((edge) => this.removeEdge(edge));
         delete this.nodes[node.id];
@@ -997,10 +1116,25 @@ class StreetGraph {
      * @param {Edge} edge - Edge to be removed
      */
     removeEdge(edge: Edge) {
+        this.recordChange({
+            type: 'edge_removed',
+            edge: edge,
+            coordinates: {
+                from: edge.from.coordinates,
+                to: edge.to.coordinates
+            }
+        });
+        
         // Remove edge from any logical street that contains it
         const logicalStreet = this.findLogicalStreetForEdge(edge);
         if (logicalStreet) {
             logicalStreet.removeEdge(edge);
+
+            this.recordChange({
+                type: 'logical_street_edge_removed',
+                logicalStreet: logicalStreet,
+                edge: edge
+            });
         }
         
         this.edges = this.edges.filter((e) => !e.isEqual(edge));
@@ -1186,6 +1320,160 @@ class StreetGraph {
             lineStart[0] + t * dx,
             lineStart[1] + t * dy
         ];
+    }
+
+    /**
+     * Compute the region of the graph affected by the given changes
+     */
+    private computeAffectedRegion(changes: GraphChange[]): AffectedRegion {
+        const affectedNodes = new Set<Node>();
+        const affectedEdges = new Set<Edge>();
+        const removedNodeCoords = new Set<string>();
+        const removedEdgeCoords = new Set<string>();
+
+        for (const change of changes) {
+            switch (change.type) {
+                case 'edge_added':
+                    if (change.edge) {
+                        affectedEdges.add(change.edge);
+                        affectedNodes.add(change.edge.from);
+                        affectedNodes.add(change.edge.to);
+                        
+                        // Include neighboring edges that might be affected
+                        this.addNeighboringEdges(change.edge.from, affectedEdges, affectedNodes);
+                        this.addNeighboringEdges(change.edge.to, affectedEdges, affectedNodes);
+                    }
+                    break;
+                    
+                case 'edge_removed':
+                    if (change.coordinates) {
+                        const coordKey = `${change.coordinates.from![0]},${change.coordinates.from![1]}-${change.coordinates.to![0]},${change.coordinates.to![1]}`;
+                        removedEdgeCoords.add(coordKey);
+                        
+                        // Find nodes that were connected to this edge
+                        const fromNode = this.findNodeByCoordinates(change.coordinates.from!);
+                        const toNode = this.findNodeByCoordinates(change.coordinates.to!);
+                        
+                        if (fromNode) {
+                            affectedNodes.add(fromNode);
+                            this.addNeighboringEdges(fromNode, affectedEdges, affectedNodes);
+                        }
+                        if (toNode) {
+                            affectedNodes.add(toNode);
+                            this.addNeighboringEdges(toNode, affectedEdges, affectedNodes);
+                        }
+                    }
+                    break;
+                    
+                case 'node_added':
+                    if (change.node) {
+                        affectedNodes.add(change.node);
+                        this.addNeighboringEdges(change.node, affectedEdges, affectedNodes);
+                    }
+                    break;
+                    
+                case 'node_removed':
+                    if (change.coordinates?.node) {
+                        const coordKey = `${change.coordinates.node[0]},${change.coordinates.node[1]}`;
+                        removedNodeCoords.add(coordKey);
+                        
+                        // Find neighboring nodes that might be affected
+                        // This is more complex since we need to identify nodes that were connected
+                        // We'll need to expand the affected region conservatively
+                        this.expandAffectedRegionAroundPoint(change.coordinates.node, affectedNodes, affectedEdges);
+                    }
+                    break;
+                default:
+            }
+        }
+
+        return {
+            nodes: affectedNodes,
+            edges: affectedEdges,
+            removedNodeCoords,
+            removedEdgeCoords
+        };
+    }
+
+    /**
+     * Add neighboring edges around a node to the affected region
+     */
+    private addNeighboringEdges(node: Node, affectedEdges: Set<Edge>, affectedNodes: Set<Node>): void {
+        for (const edge of node.getOuterEdges()) {
+            affectedEdges.add(edge);
+            affectedNodes.add(edge.to);
+            
+            // Add edges connected to the neighboring node as well
+            for (const neighborEdge of edge.to.getOuterEdges()) {
+                affectedEdges.add(neighborEdge);
+                affectedNodes.add(neighborEdge.to);
+            }
+        }
+    }
+
+    /**
+     * Expand the affected region around a point (used for removed nodes)
+     */
+    private expandAffectedRegionAroundPoint(point: number[], affectedNodes: Set<Node>, affectedEdges: Set<Edge>): void {
+        // Find nodes within a reasonable distance of the removed point
+        const searchRadius = SNAP_TOLERANCE * 10; // Expand search radius
+        
+        for (const nodeId in this.nodes) {
+            const node = this.nodes[nodeId];
+            if (this.distance(point, node.coordinates) <= searchRadius) {
+                affectedNodes.add(node);
+                this.addNeighboringEdges(node, affectedEdges, affectedNodes);
+            }
+        }
+    }
+
+    /**
+     * Find a node by its coordinates
+     */
+    private findNodeByCoordinates(coordinates: number[]): Node | null {
+        for (const nodeId in this.nodes) {
+            const node = this.nodes[nodeId];
+            if (this.pointsEqual(node.coordinates, coordinates, EPSILON)) {
+                return node;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Check if the graph has any changes since the last commit
+     */
+    hasChangesSinceLastCommit(): boolean {
+        return this.getChangesSinceLastCommit().length > 0;
+    }
+
+    /**
+     * Get statistics about changes since last commit
+     */
+    getChangeStatistics(): {
+        totalChanges: number;
+        edgesAdded: number;
+        edgesRemoved: number;
+        nodesAdded: number;
+        nodesRemoved: number;
+        logicalStreetsCreated: number;
+        logicalStreetsRemoved: number;
+        logicalStreetsEdgeAdded: number;
+        logicalStreetsEdgeRemoved: number;
+    } {
+        const changes = this.getChangesSinceLastCommit();
+        
+        return {
+            totalChanges: changes.length,
+            edgesAdded: changes.filter(c => c.type === 'edge_added').length,
+            edgesRemoved: changes.filter(c => c.type === 'edge_removed').length,
+            nodesAdded: changes.filter(c => c.type === 'node_added').length,
+            nodesRemoved: changes.filter(c => c.type === 'node_removed').length,
+            logicalStreetsCreated: changes.filter(c => c.type === 'logical_street_created').length,
+            logicalStreetsRemoved: changes.filter(c => c.type === 'logical_street_removed').length,
+            logicalStreetsEdgeAdded: changes.filter(c => c.type === 'logical_street_edge_added').length,
+            logicalStreetsEdgeRemoved: changes.filter(c => c.type === 'logical_street_edge_removed').length
+        };
     }
 }
 

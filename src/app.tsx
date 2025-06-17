@@ -117,9 +117,12 @@ function Root() {
 
                     debugStore.clear();
 
+                    streetGraph.endCommit();
+
                     streetGraph.addLineString(updatedData.features[0].geometry, { 
                         pointSnapping: drawMode.getPointSnappingStates()
                     });
+                    
                     const streets = streetGraph.getStreetFeatureCollection();
                     setStreetsData(streets as any);
 
@@ -144,6 +147,9 @@ function Root() {
                     }
 
                     setLotsData(lots);
+
+                    console.log(streetGraph.getChangesSinceLastCommit());
+                    console.log('Street graph updated:', streetGraph.getChangeStatistics());
                 }
             }
         }),
