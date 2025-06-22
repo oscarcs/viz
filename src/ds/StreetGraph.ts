@@ -31,7 +31,6 @@ interface GraphChange {
     node?: Node;
     logicalStreet?: LogicalStreet;
     timestamp: number;
-    // Store coordinates for removed elements since the objects may be deleted
     coordinates?: {
         from?: number[];
         to?: number[];
@@ -843,7 +842,7 @@ class StreetGraph {
         this.streetIdCounter = 0;
         
         this.changes = [];
-        this.lastCommitTimestamp = 0;
+        this.lastCommitTimestamp = Date.now();
     }
 
     /**
@@ -1383,7 +1382,39 @@ class StreetGraph {
                         this.expandAffectedRegionAroundPoint(change.coordinates.node, affectedNodes, affectedEdges);
                     }
                     break;
+
+                case 'logical_street_edge_added':
+                case 'logical_street_edge_removed':
+                    if (change.edge) {
+                        affectedEdges.add(change.edge);
+                        affectedNodes.add(change.edge.from);
+                        affectedNodes.add(change.edge.to);
+                        
+                        // Include neighboring edges that might be affected by logical street changes
+                        this.addNeighboringEdges(change.edge.from, affectedEdges, affectedNodes);
+                        this.addNeighboringEdges(change.edge.to, affectedEdges, affectedNodes);
+                    }
+                    break;
+
+                case 'logical_street_created':
+                case 'logical_street_removed':
+                    if (change.logicalStreet) {
+                        // Add all edges and nodes from the logical street to affected region
+                        for (const edge of change.logicalStreet.edges) {
+                            affectedEdges.add(edge);
+                            affectedNodes.add(edge.from);
+                            affectedNodes.add(edge.to);
+                            
+                            // Include neighboring edges as logical street changes can affect polygonization
+                            this.addNeighboringEdges(edge.from, affectedEdges, affectedNodes);
+                            this.addNeighboringEdges(edge.to, affectedEdges, affectedNodes);
+                        }
+                    }
+                    break;
+
                 default:
+                    // Handle any unknown change types gracefully
+                    break;
             }
         }
 

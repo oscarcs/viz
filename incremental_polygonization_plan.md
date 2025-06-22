@@ -39,15 +39,21 @@ When edges are added/removed/modified:
 Add change tracking to StreetGraph:
 ```ts
 interface GraphChange {
-  type: 'edge_added' | 'edge_removed' | 'node_added' | 'node_removed';
+  type: GraphChangeType;
   edge?: Edge;
   node?: Node;
+  logicalStreet?: LogicalStreet;
   timestamp: number;
+  coordinates?: {
+    from?: number[];
+    to?: number[];
+    node?: number[];
+  };
 }
 
 class StreetGraph {
   private changes: GraphChange[] = [];
-  private lastPolygonizationTimestamp: number = 0;
+  private lastCommitTimestamp: number = 0;
   
   // Track all changes since last polygonization
 }
