@@ -54,7 +54,7 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
     else if (faces.length > 1) {
         // Step 2: Calculate the alpha-strips for the skeleton faces
         const alphaStrips = calculateAlphaStripsFromFaces(faces, block);
-    
+
         // Step 3: Create the beta strips by swapping corner regions between adjacent alpha strips
         const betaStrips = calculateBetaStripsFromAlphaStrips(alphaStrips, block);
     
@@ -306,6 +306,7 @@ function calculateBetaStripsFromAlphaStrips(alphaStrips: Map<string, Polygon[]>,
 
         const slicingLine = calculateSlicingLineToClosestExteriorEdge(
             interiorPoint,
+            exteriorPoint,
             swapFrom,
             block.polygon.geometry
         );
@@ -371,43 +372,18 @@ function findSharedEdgesBetweenStrips(strip1: Polygon, strip2: Polygon, block: B
     return edges;
 }
 
-function edgesAreEqual(e1Start: number[], e1End: number[], e2Start: number[], e2End: number[]): boolean {
-    return (
-        (e1Start[0] === e2Start[0] && e1Start[1] === e2Start[1] && e1End[0] === e2End[0] && e1End[1] === e2End[1]) ||
-        (e1Start[0] === e2End[0] && e1Start[1] === e2End[1] && e1End[0] === e2Start[0] && e1End[1] === e2Start[1])
-    );
-}
-
 function calculateSlicingLineToClosestExteriorEdge(
-    sourcePoint: number[], 
+    sourcePoint: number[],
+    exteriorPoint: number[], 
     polygon: Polygon,
-    outsideShape: Polygon
-): LineString | null {
-    const polygonBoundary = polygon.coordinates[0];
-    const outsideShapeBoundary = outsideShape.coordinates[0];
-    
-    // Find all shared edges between the polygon and outside shape
-    const sharedEdges: LineString[] = [];
+    outsideShape: Polygon,
+): LineString | null {    
     const tolerance = 0.00001;
-    
-    for (let i = 0; i < polygonBoundary.length - 1; i++) {
-        const polyStart = polygonBoundary[i];
-        const polyEnd = polygonBoundary[i + 1];
-        
-        for (let j = 0; j < outsideShapeBoundary.length - 1; j++) {
-            const outsideStart = outsideShapeBoundary[j];
-            const outsideEnd = outsideShapeBoundary[j + 1];
-            
-            // Check if edges are the same or overlapping
-            if (edgesAreEqual(polyStart, polyEnd, outsideStart, outsideEnd)) {
-                sharedEdges.push({
-                    type: 'LineString',
-                    coordinates: [polyStart, polyEnd]
-                });
-                break;
-            }
-        }
-    }
+
+    // Find all shared edges between the polygon and outside shape
+    const sharedEdges = lineOverlap(polygon, outsideShape)
+        .features
+        .map((feature: Feature<LineString>) => feature.geometry);
     
     if (sharedEdges.length === 0) {
         console.warn('No shared edges found between polygon and outside shape');
@@ -427,6 +403,12 @@ function calculateSlicingLineToClosestExteriorEdge(
             // Skip if it's the same as source point
             if (Math.abs(edgePoint[0] - sourcePoint[0]) < tolerance && 
                 Math.abs(edgePoint[1] - sourcePoint[1]) < tolerance) {
+                continue;
+            }
+
+            // Skip if it's the same as exterior point
+            if (Math.abs(edgePoint[0] - exteriorPoint[0]) < tolerance && 
+                Math.abs(edgePoint[1] - exteriorPoint[1]) < tolerance) {
                 continue;
             }
             
