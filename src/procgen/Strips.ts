@@ -75,6 +75,10 @@ export function generateStripsFromBlock(block: Block): Map<string, Strip> {
 }
 
 function calculateFacesFromBlock(block: Block): Polygon[] {
+    if (!block.polygon || !block.polygon.geometry || block.polygon.geometry.type !== 'Polygon') {
+        return [];
+    }
+
     // TODO: fix the input type handling
     const multiPoly: MultiPolygon = {
         type: 'MultiPolygon',
@@ -487,6 +491,7 @@ function moveTransferRegionsForBetaStrips(betaStrips: Map<string, Polygon>, regi
         }
         catch (error) {
             console.warn(`Error during polygon slice operation for strip ${region.fromStreetId} to ${region.toStreetId}:`, error);
+            console.debug(`Slicing line: ${JSON.stringify(region.slicingLine)}`);
             continue;
         }
         

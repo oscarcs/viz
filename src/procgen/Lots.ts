@@ -62,7 +62,7 @@ export function generateLotsFromStrips(street: LogicalStreet, strips: Strip[]): 
  */
 function calculateSplittingRays(strip: Strip, streetLine: LineString): LineString[] {
     const rays: LineString[] = [];
-    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 10, 'meters');
+    const rayLength = lengthToDegrees(strip.block.maxLotDepth + 30, 'meters');
     const lotWidth = lengthToDegrees(25, 'meters');
 
     // TODO: Optimize this so we don't create way more rays than needed.
@@ -131,9 +131,16 @@ function calculateSplittingRays(strip: Strip, streetLine: LineString): LineStrin
 function findStripEdgesFacingStreet(strip: Strip): LineString | null {
     const blockBoundary = strip.block.polygon.geometry;
 
-    const overlappingBlock = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
-        .features
-        .map((feature: Feature<LineString>) => feature.geometry);
+    let overlappingBlock: LineString[] = [];
+    try {
+        overlappingBlock = lineOverlap(strip.polygon, blockBoundary, { tolerance: 1 / 1000 })
+            .features
+            .map((feature: Feature<LineString>) => feature.geometry);
+    }
+    catch (error) {
+        console.warn(`Error finding edges facing street: ${error instanceof Error ? error.message : 'Unknown error'}`);
+        return null;
+    }
 
     const combinedOverlappingBlock = stitchLineStrings(overlappingBlock);
     
