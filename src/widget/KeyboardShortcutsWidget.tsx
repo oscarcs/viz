@@ -65,6 +65,7 @@ class KeyboardShortcutsWidgetClass implements Widget<KeyboardShortcutsWidgetProp
     placement: WidgetPlacement = 'bottom-right';
     element?: HTMLDivElement;
     root?: Root;
+    private _updateScheduled = false;
 
     constructor(props: KeyboardShortcutsWidgetProps) {
         this.placement = props.placement ?? this.placement;
@@ -77,7 +78,20 @@ class KeyboardShortcutsWidgetClass implements Widget<KeyboardShortcutsWidgetProp
     setProps(props: Partial<KeyboardShortcutsWidgetProps>) {
         this.placement = props.placement ?? this.placement;
         Object.assign(this.props, props);
-        this.update();
+        this.scheduleUpdate();
+    }
+
+    private scheduleUpdate() {
+        if (this._updateScheduled) {
+            return;
+        }
+        this._updateScheduled = true;
+        
+        // Defer the update to avoid triggering renders during React's render cycle
+        requestAnimationFrame(() => {
+            this._updateScheduled = false;
+            this.update();
+        });
     }
 
     onAdd(): HTMLDivElement {
@@ -92,7 +106,7 @@ class KeyboardShortcutsWidgetClass implements Widget<KeyboardShortcutsWidgetProp
         
         this.element = element;
         this.root = createRoot(element);
-        this.update();
+        this.scheduleUpdate();
         
         return element;
     }

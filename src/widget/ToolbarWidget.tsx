@@ -30,11 +30,18 @@ export const ToolbarWidget = (props: ToolbarWidgetProps) => {
     const element = useMemo(() => {
         const el = document.createElement('div');
         el.className = 'deck-widget';
+        // Prevent all pointer events from bubbling through to the map
+        el.style.pointerEvents = 'auto';
         return el;
     }, []);
     useWidget(ToolbarWidgetClass, { ...props, element });
     return createPortal(
-        <div className="flex flex-col gap-2">
+        <div 
+            className="flex flex-col gap-2"
+            onClick={(e) => e.stopPropagation()}
+            onMouseDown={(e) => e.stopPropagation()}
+            onMouseUp={(e) => e.stopPropagation()}
+        >
             <ToolbarButton
                 icon={<Hand size={20} />}
                 label="Select"
@@ -62,6 +69,22 @@ interface ToolbarButtonProps {
 const ToolbarButton = ({ icon, label, isActive = false, onClick }: ToolbarButtonProps) => {
     const [isHovered, setIsHovered] = useState(false);
     
+    const handleClick = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+        onClick();
+    };
+
+    const handleMouseDown = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+    };
+
+    const handleMouseUp = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        e.preventDefault();
+    };
+    
     return (
         <button 
             className={`pointer-events-auto cursor-pointer w-full border rounded-md p-3 relative flex items-center transition-colors ${
@@ -69,7 +92,9 @@ const ToolbarButton = ({ icon, label, isActive = false, onClick }: ToolbarButton
                     ? 'border-blue-500 bg-blue-100/70 text-blue-700' 
                     : 'border-gray-300 bg-gray-100/70 hover:bg-gray-200/70'
             }`}
-            onClick={onClick}
+            onClick={handleClick}
+            onMouseDown={handleMouseDown}
+            onMouseUp={handleMouseUp}
             onMouseEnter={() => setIsHovered(true)}
             onMouseLeave={() => setIsHovered(false)}
         >
