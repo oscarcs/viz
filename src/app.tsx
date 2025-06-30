@@ -22,6 +22,8 @@ const INITIAL_VIEW_STATE = {
     latitude: 0,
     longitude: 0,   
     zoom: 17,
+    maxZoom: 20,
+    minZoom: 13,
     bearing: 0,
     pitch: 0
 };
@@ -65,6 +67,14 @@ function Root() {
             setHoverInfo(null);
         }
     }, [activeTool, setHoverInfo]);
+
+    const handleToolChange = React.useCallback((newTool: ToolType) => {
+        if (activeTool === 'draw' && newTool !== 'draw') {
+            drawMode.resetClickSequence();
+        }
+        
+        setActiveTool(newTool);
+    }, [activeTool, drawMode]);
 
     const layers = [
         new PolygonLayer<Lot>({
@@ -110,6 +120,9 @@ function Root() {
             selectedFeatureIndexes: [],
             editHandleType: 'point',
             onHover: updateHoverInfo,
+            updateTriggers: {
+                mode: activeTool
+            },
             onEdit: ({updatedData, editType}) => {
                 if (activeTool === 'draw' && editType !== 'addTentativePosition') {
 
@@ -191,7 +204,7 @@ function Root() {
             <CustomCompassWidget />
             <ToolbarWidget 
                 activeTool={activeTool}
-                onToolChange={setActiveTool}
+                onToolChange={handleToolChange}
             />
             <KeyboardShortcutsWidget activeTool={activeTool} />
             {hoverInfo && activeTool === 'select' && (
