@@ -10,8 +10,8 @@ import {
     Position,
     Tooltip
 } from "@deck.gl-community/editable-layers";
-import { distance } from '@turf/turf';
 import StreetGraph, { SNAP_TOLERANCE } from '../ds/StreetGraph';
+import { distance } from "../util/flat-turf";
 
 export class DrawStreetMode extends GeoJsonEditMode {
     dist = 0;
@@ -255,8 +255,7 @@ export class DrawStreetMode extends GeoJsonEditMode {
                 text = formatTooltip(args.dist);
             }
             else {
-                // Distance between the last two tentative points
-                text = `${(args.dist * 1000).toFixed(2)} m`;
+                text = `${(args.dist).toFixed(2)} m`;
             }
 
             tooltips = [

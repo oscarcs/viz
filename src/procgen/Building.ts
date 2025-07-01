@@ -17,5 +17,8 @@ export function generateFloorplanFromLot(lot: Lot): FloorPlan {
 }
 
 export function generateBuildingFromFloorplan(floorPlan: FloorPlan, minHeight: number, maxHeight: number): Building | null {
-    return null;
+    return {
+        polygon: floorPlan.geometry,
+        height: Math.random() * (maxHeight - minHeight) + minHeight
+    };
 }

@@ -5,7 +5,7 @@ import { PickingInfo } from '@deck.gl/core';
 import '@deck.gl/widgets/stylesheet.css';
 import { Color, EditableGeoJsonLayer } from '@deck.gl-community/editable-layers';
 import { DrawStreetMode } from './editors/DrawStreetMode';
-import { GeoJsonLayer, PolygonLayer } from 'deck.gl';
+import { GeoJsonLayer, PolygonLayer, COORDINATE_SYSTEM } from 'deck.gl';
 import StreetGraph from './ds/StreetGraph';
 import { ToolbarWidget, ToolType } from './widget/ToolbarWidget';
 import { CustomCompassWidget } from './widget/CustomCompassWidget';
@@ -17,13 +17,14 @@ import { SelectMode } from './editors/SelectMode';
 import { generateLotsFromStrips, Lot } from './procgen/Lots';
 import { DebugGeometry, debugStore } from './debug/DebugStore';
 import { FeatureCollection } from 'geojson';
+import FlatMapView from './projections/flat-map-view';
 
 const INITIAL_VIEW_STATE = {
-    latitude: 0,
-    longitude: 0,   
-    zoom: 17,
-    maxZoom: 20,
-    minZoom: 13,
+    locX: 0,
+    locY: 0,
+    zoom: 1,
+    maxZoom: 5,
+    minZoom: 0.001,
     bearing: 0,
     pitch: 0
 };
@@ -79,6 +80,8 @@ function Root() {
     const layers = [
         new PolygonLayer<Lot>({
             id: "lots",
+            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+            coordinateOrigin: [0, 0, 0],
             data: lotsData,
             filled: true,
             stroked: true,
@@ -93,6 +96,8 @@ function Root() {
         }),
         new PolygonLayer<Building>({
             id: "buildings",
+            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+            coordinateOrigin: [0, 0, 0],
             data: buildingData,
             extruded: true,
             getElevation: f => f.height,
@@ -108,6 +113,8 @@ function Root() {
         }),
         new EditableGeoJsonLayer({
             id: "streets",
+            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+            coordinateOrigin: [0, 0, 0],
             data: streetsData as any,
             mode: currentMode,
             filled: true,
@@ -128,6 +135,8 @@ function Root() {
 
                     if (updatedData.features.length === 0) return;
 
+                    console.log(updatedData.features);
+
                     debugStore.clear();
 
                     streetGraph.endCommit();
@@ -139,35 +148,39 @@ function Root() {
                     const streets = streetGraph.getStreetFeatureCollection();
                     setStreetsData(streets as any);
 
-                    const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
+                    return;
+
+                    // const blocks = StreetGraph.polygonizeToBlocks(streetGraph);
                     
-                    const strips: Map<string, Strip[]> = new Map();
-                    for (const block of blocks) {
-                        const generatedStrips = generateStripsFromBlock(block);
-                        for (const [key, strip] of generatedStrips) {
-                            if (!strips.has(key)) strips.set(key, []);
-                            strips.get(key)!.push(strip);
-                        }
-                    }
+                    // const strips: Map<string, Strip[]> = new Map();
+                    // for (const block of blocks) {
+                    //     const generatedStrips = generateStripsFromBlock(block);
+                    //     for (const [key, strip] of generatedStrips) {
+                    //         if (!strips.has(key)) strips.set(key, []);
+                    //         strips.get(key)!.push(strip);
+                    //     }
+                    // }
 
-                    const lots: Lot[] = [];
-                    for (const streetId of strips.keys()) {
-                        const street = streetGraph.getStreet(streetId);
-                        if (street) {
-                            const generatedLots = generateLotsFromStrips(street, strips.get(streetId)!);
-                            lots.push(...generatedLots);
-                        }
-                    }
+                    // const lots: Lot[] = [];
+                    // for (const streetId of strips.keys()) {
+                    //     const street = streetGraph.getStreet(streetId);
+                    //     if (street) {
+                    //         const generatedLots = generateLotsFromStrips(street, strips.get(streetId)!);
+                    //         lots.push(...generatedLots);
+                    //     }
+                    // }
 
-                    setLotsData(lots);
+                    // setLotsData(lots);
 
-                    console.log(streetGraph.getChangesSinceLastCommit());
-                    console.log('Street graph updated:', streetGraph.getChangeStatistics());
+                    // console.log(streetGraph.getChangesSinceLastCommit());
+                    // console.log('Street graph updated:', streetGraph.getChangeStatistics());
                 }
             }
         }),
         new GeoJsonLayer({
             id: "debug",
+            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
+            coordinateOrigin: [0, 0, 0],
             data: {
                 type: 'FeatureCollection',
                 features: debugGeometry.map((debug, index) => ({
@@ -200,6 +213,7 @@ function Root() {
             controller={{ doubleClickZoom: false }}
             initialViewState={INITIAL_VIEW_STATE}
             layers={layers}
+            views={new FlatMapView()}
         >
             <CustomCompassWidget />
             <ToolbarWidget 

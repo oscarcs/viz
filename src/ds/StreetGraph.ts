@@ -12,6 +12,7 @@ import {
 } from "geojson";
 import { Block } from "../procgen/Strips";
 import { customBuffer } from "../util/CustomBuffer";
+import { distance } from "../util/flat-turf";
 
 type GraphChangeType = 'edge_added'
     | 'edge_removed'
@@ -75,9 +76,9 @@ function validateGeoJson(geoJson: AllGeoJSON) {
 const EPSILON = 1e-10;
 
 /**
- * Tolerance for snapping endpoints to nearby edges in degrees.
+ * Tolerance for snapping endpoints to nearby edges in meters.
  */
-export const SNAP_TOLERANCE = 0.0002;
+export const SNAP_TOLERANCE = 10;
 
 /**
  * Default street width of logical streets in meters.
@@ -218,7 +219,7 @@ class StreetGraph {
             }
 
             // Sort split points by distance from start
-            splitPoints.sort((a, b) => this.distance(start, a) - this.distance(start, b));
+            splitPoints.sort((a, b) => distance(start, a) - distance(start, b));
 
             // Split existing edges at intersection points
             const edgesToRemoveFromNewEdges = new Set<Edge>();
@@ -306,7 +307,7 @@ class StreetGraph {
                 intersections.push({
                     point: intersection,
                     edge: edge,
-                    distance: this.distance(start, intersection)
+                    distance: distance(start, intersection)
                 });
             }
         }
@@ -1283,7 +1284,7 @@ class StreetGraph {
             processedEdges.add(edgeKey);
 
             const closestPoint = this.pointToLineSegment(point, edge.from.coordinates, edge.to.coordinates);
-            const dist = this.distance(point, closestPoint);
+            const dist = distance(point, closestPoint);
             
             if (dist < minDistance) {
                 nearestPoint = closestPoint;
@@ -1451,7 +1452,7 @@ class StreetGraph {
         
         for (const nodeId in this.nodes) {
             const node = this.nodes[nodeId];
-            if (this.distance(point, node.coordinates) <= searchRadius) {
+            if (distance(point, node.coordinates) <= searchRadius) {
                 affectedNodes.add(node);
                 this.addNeighboringEdges(node, affectedEdges, affectedNodes);
             }
