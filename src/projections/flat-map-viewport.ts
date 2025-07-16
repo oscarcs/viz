@@ -60,10 +60,7 @@ export default class FlatMapViewport extends Viewport {
 
         let {width, height} = opts;
         
-        // Calculate scale for flat coordinates
-        // We want zoom level 1 to show roughly 100 units across the screen
-        // Smaller scale values = larger world coordinates
-        const scale = Math.pow(2, zoom) * 0.01; // Makes coordinates 100x larger than default
+        const scale = Math.pow(2, zoom) * 0.01;
 
         width = width || 1;
         height = height || 1;

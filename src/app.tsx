@@ -80,7 +80,6 @@ function Root() {
     const layers = [
         new PolygonLayer<Lot>({
             id: "lots",
-            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
             coordinateOrigin: [0, 0, 0],
             data: lotsData,
             filled: true,
@@ -96,7 +95,6 @@ function Root() {
         }),
         new PolygonLayer<Building>({
             id: "buildings",
-            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
             coordinateOrigin: [0, 0, 0],
             data: buildingData,
             extruded: true,
@@ -113,7 +111,6 @@ function Root() {
         }),
         new EditableGeoJsonLayer({
             id: "streets",
-            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
             coordinateOrigin: [0, 0, 0],
             data: streetsData as any,
             mode: currentMode,
@@ -179,7 +176,6 @@ function Root() {
         }),
         new GeoJsonLayer({
             id: "debug",
-            coordinateSystem: COORDINATE_SYSTEM.METER_OFFSETS,
             coordinateOrigin: [0, 0, 0],
             data: {
                 type: 'FeatureCollection',
