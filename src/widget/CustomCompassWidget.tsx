@@ -11,6 +11,8 @@ import type { Deck, Viewport, Widget, WidgetPlacement } from '@deck.gl/core';
 import { CompassWidgetProps } from 'deck.gl';
 import { createRoot, Root } from 'react-dom/client';
 import { useWidget } from "@deck.gl/react";
+import FlatMapViewport from '../projections/flat-map-viewport';
+import FlyToInterpolatorFlat from '../projections/fly-to-interpolator-flat';
 
 const CompassWidgetUI: React.FC<{
     rz: number;
@@ -117,6 +119,9 @@ class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
         else if (viewport instanceof _GlobeViewport) {
             return [0, Math.max(-80, Math.min(80, viewport.latitude))];
         }
+        else if (viewport instanceof FlatMapViewport) {
+            return [-viewport.bearing, viewport.pitch];
+        }
         return [0, 0];
     }
 
@@ -169,6 +174,19 @@ class CustomCompassWidgetClass implements Widget<CompassWidgetProps> {
                 ...(this.getRotation(viewport)[0] === 0 ? { pitch: 0 } : {}),
                 transitionDuration: this.props.transitionDuration,
                 transitionInterpolator: new FlyToInterpolator()
+            };
+            // @ts-ignore Using private method temporary until there's a public one
+            this.deck._onViewStateChange({ viewId, viewState: nextViewState, interactionState: {} });
+        }
+        else if (viewport instanceof FlatMapViewport) {
+            const nextViewState = {
+                locX: viewport.locX,
+                locY: viewport.locY,
+                zoom: viewport.zoom,
+                bearing: 0,
+                pitch: 0,
+                transitionDuration: this.props.transitionDuration,
+                transitionInterpolator: new FlyToInterpolatorFlat()
             };
             // @ts-ignore Using private method temporary until there's a public one
             this.deck._onViewStateChange({ viewId, viewState: nextViewState, interactionState: {} });

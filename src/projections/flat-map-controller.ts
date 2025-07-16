@@ -255,7 +255,17 @@ export class FlatMapState extends ViewState<FlatMapState, FlatMapStateProps, Fla
     }
 
     shortestPathFrom(viewState: FlatMapState): FlatMapStateProps {
-        throw new Error("Method not implemented.");
+        // Get the properties from the starting viewstate
+        const fromProps = viewState.getViewportProps();
+        const props = {...this.getViewportProps()};
+        const {bearing} = props;
+
+        // Normalize bearing to take the shortest rotation path
+        if (Math.abs(bearing - fromProps.bearing) > 180) {
+            props.bearing = bearing < 0 ? bearing + 360 : bearing - 360;
+        }
+
+        return props;
     }
 
     applyConstraints(props: Required<FlatMapStateProps>): Required<FlatMapStateProps> {
@@ -290,15 +300,24 @@ export class FlatMapState extends ViewState<FlatMapState, FlatMapStateProps, Fla
 
     _panByWorldOffset(offset: [number, number]) {
         const viewport = this.makeViewport(this.getViewportProps());
-        const {width, height} = this.getViewportProps();
+        const {width, height, bearing} = this.getViewportProps();
         
         const centerPixel: [number, number] = [width / 2, height / 2];
         
         const currentWorldCenter = viewport.unproject(centerPixel);
         
+        const bearingRad = bearing * Math.PI / 180;
+        const cos = Math.cos(bearingRad);
+        const sin = Math.sin(bearingRad);
+        
+        const rotatedOffset: [number, number] = [
+            offset[0] * cos - offset[1] * sin,
+            offset[0] * sin + offset[1] * cos
+        ];
+        
         const newWorldPos: [number, number] = [
-            currentWorldCenter[0] + offset[0],
-            currentWorldCenter[1] + offset[1]
+            currentWorldCenter[0] + rotatedOffset[0],
+            currentWorldCenter[1] + rotatedOffset[1]
         ];
         
         const newProps = viewport.panByPosition(newWorldPos, centerPixel);
