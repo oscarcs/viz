@@ -215,19 +215,19 @@ export class FlatMapState extends ViewState<FlatMapState, FlatMapStateProps, Fla
     }
 
     moveLeft(speed: number = 2): FlatMapState {
-        return this._panFromCenter([speed, 0]);
+        return this._panByWorldOffset([-speed, 0]);
     }
 
     moveRight(speed: number = 2): FlatMapState {
-        return this._panFromCenter([-speed, 0]);
+        return this._panByWorldOffset([speed, 0]);
     }
 
     moveUp(speed: number = 2): FlatMapState {
-        return this._panFromCenter([0, speed]);
+        return this._panByWorldOffset([0, speed]);
     }
 
     moveDown(speed: number = 2): FlatMapState {
-        return this._panFromCenter([0, -speed]);
+        return this._panByWorldOffset([0, -speed]);
     }
 
     rotateLeft(speed: number = 15): FlatMapState {
@@ -286,6 +286,24 @@ export class FlatMapState extends ViewState<FlatMapState, FlatMapStateProps, Fla
             pos: [width / 2 + offset[0], height / 2 + offset[1]],
             startPos: [width / 2, height / 2]
         });
+    }
+
+    _panByWorldOffset(offset: [number, number]) {
+        const viewport = this.makeViewport(this.getViewportProps());
+        const {width, height} = this.getViewportProps();
+        
+        const centerPixel: [number, number] = [width / 2, height / 2];
+        
+        const currentWorldCenter = viewport.unproject(centerPixel);
+        
+        const newWorldPos: [number, number] = [
+            currentWorldCenter[0] + offset[0],
+            currentWorldCenter[1] + offset[1]
+        ];
+        
+        const newProps = viewport.panByPosition(newWorldPos, centerPixel);
+        
+        return this._getUpdatedState(newProps);
     }
 
     _getUpdatedState(newProps: Partial<FlatMapStateProps & FlatMapStateInternal & { makeViewport: (props: Record<string, any>) => Viewport }>): FlatMapState {

@@ -1,11 +1,5 @@
 import { Viewport } from "deck.gl";
-import {
-  getViewMatrix,
-  getProjectionParameters,
-  fovyToAltitude,
-  pixelsToWorld
-} from '@math.gl/web-mercator';
-import {vec2} from '@math.gl/core';
+import { Matrix4 } from '@math.gl/core';
 
 type Padding = {
   left?: number;
@@ -60,46 +54,42 @@ export default class FlatMapViewport extends Viewport {
             pitch = 0,
             bearing = 0,
             fovy = 80,
-            nearZMultiplier = 0.1,
-            farZMultiplier = 1.01,
             nearZ,
             farZ
         } = opts;
 
         let {width, height} = opts;
-        const scale = Math.pow(2, zoom);
+        
+        // Calculate scale for flat coordinates
+        // We want zoom level 1 to show roughly 100 units across the screen
+        // Smaller scale values = larger world coordinates
+        const scale = Math.pow(2, zoom) * 0.01; // Makes coordinates 100x larger than default
 
         width = width || 1;
         height = height || 1;
 
-        let altitude = fovyToAltitude(fovy);
+        let altitude = 1.5; // Simple fixed altitude for flat coordinates
 
-        let projectionParameters = getProjectionParameters({
-            width,
-            height,
-            scale,
-            center: undefined,
-            offset: undefined,
-            pitch,
-            fovy,
-            nearZMultiplier,
-            farZMultiplier
+        // Create a proper perspective projection matrix for flat coordinates
+        const fovyRadians = fovy * Math.PI / 180;
+        const aspect = width / height;
+        const near = nearZ || 0.1;
+        const far = farZ || 1000;
+        
+        const projectionMatrix = new Matrix4().perspective({
+            fovy: fovyRadians,
+            aspect,
+            near,
+            far
         });
 
-        if (nearZ && Number.isFinite(nearZ)) {
-            projectionParameters.near = nearZ;
-        }
-        if (farZ && Number.isFinite(farZ)) {
-            projectionParameters.far = farZ;
-        }
-
-        let viewMatrixUncentered = getViewMatrix({
-            height,
-            pitch,
-            bearing,
-            scale,
-            altitude
-        });
+        // Create a proper view matrix for flat coordinates that handles rotation
+        const viewMatrix = new Matrix4()
+            .identity()
+            .translate([0, 0, -altitude])
+            .rotateX(-pitch * Math.PI / 180)  // Apply pitch rotation
+            .rotateZ(-bearing * Math.PI / 180)  // Apply bearing rotation
+            .scale([scale, scale, 1]);  // Apply zoom scale
 
         super({
             longitude: undefined,
@@ -110,12 +100,14 @@ export default class FlatMapViewport extends Viewport {
             width,
             height,
 
-            viewMatrix: viewMatrixUncentered,
+            viewMatrix: Array.from(viewMatrix.toArray()),
+            projectionMatrix: Array.from(projectionMatrix.toArray()),
             zoom,
-
-            ...projectionParameters,
             fovy,
-            focalDistance: altitude
+            focalDistance: altitude,
+            
+            // Override position to set our flat coordinates
+            position: [locX, locY, 0]
         });
 
         this.locX = locX;
@@ -128,17 +120,20 @@ export default class FlatMapViewport extends Viewport {
     }
 
     panByPosition(coords: number[], pixel: number[]): FlatMapViewportOptions {
-
-        console.log('panByPosition', coords, pixel);
-
-        const fromLocation = pixelsToWorld(pixel, this.pixelUnprojectionMatrix);
-        const toLocation = this.projectFlat(coords);
-
-        const translate = vec2.add([], toLocation, vec2.negate([], fromLocation));
-        const newCenter = vec2.add([], this.center, translate);
-
-        const [locX, locY] = this.unprojectFlat(newCenter);
-        console.log(locX, locY);
-        return {locX, locY};
+        // We want to move the viewport so that the world position 'coords' 
+        // appears at the pixel position 'pixel'
+        
+        // First, find what world position is currently at the pixel position
+        const currentWorldPosAtPixel = this.unproject(pixel);
+        
+        // The difference between where we want to be and where we are
+        const deltaX = coords[0] - currentWorldPosAtPixel[0];
+        const deltaY = coords[1] - currentWorldPosAtPixel[1];
+        
+        // Update the viewport center by this delta
+        const newLocX = this.locX + deltaX;
+        const newLocY = this.locY + deltaY;
+        
+        return {locX: newLocX, locY: newLocY};
     }
 }
